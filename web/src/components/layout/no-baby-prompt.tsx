@@ -13,7 +13,7 @@ export function NoBabyPrompt() {
       <div className="rounded-full bg-accent/20 p-6 mb-6">
         <Baby className="h-16 w-16 text-accent" />
       </div>
-      <h2 className="text-2xl font-bold mb-2">Welcome to BabyTrack!</h2>
+      <h2 className="text-2xl font-bold mb-2">Welcome to LessFussy!</h2>
       <p className="text-muted-foreground mb-6 max-w-md">
         Get started by adding your first baby. You&apos;ll be able to track
         feedings, sleep, diapers, and more.

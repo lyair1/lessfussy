@@ -12,14 +12,14 @@ const nunito = Nunito({
 });
 
 export const metadata: Metadata = {
-  title: "BabyTrack - Track Your Baby's Day",
+  title: "LessFussy - Track Your Baby's Day",
   description:
     "A comprehensive baby tracking app for parents to log feedings, sleep, diapers, and more.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "BabyTrack",
+    title: "LessFussy",
   },
 };
 
@@ -45,7 +45,7 @@ export default function RootLayout({
             defaultTheme="system"
             enableSystem
             disableTransitionOnChange
-            storageKey="babytrack-theme"
+            storageKey="lessfussy-theme"
           >
             {children}
             <Toaster position="top-center" richColors />

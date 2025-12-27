@@ -88,7 +88,7 @@ export function ShareBabyDialog({
               className="bg-background"
             />
             <p className="text-xs text-muted-foreground">
-              The person must have a BabyTrack account
+              The person must have a LessFussy account
             </p>
           </div>
 
