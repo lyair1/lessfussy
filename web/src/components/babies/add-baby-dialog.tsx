@@ -37,7 +37,7 @@ export function AddBabyDialog({ open, onOpenChange }: AddBabyDialogProps) {
 
     setLoading(true);
     try {
-      await createBaby({
+      const newBaby = await createBaby({
         name: name.trim(),
         birthDate: birthDate || undefined,
       });
@@ -45,7 +45,8 @@ export function AddBabyDialog({ open, onOpenChange }: AddBabyDialogProps) {
       onOpenChange(false);
       setName("");
       setBirthDate("");
-      router.refresh();
+      // Navigate to the new baby's dashboard
+      router.push(`/baby/${newBaby.id}`);
     } catch (error) {
       toast.error("Failed to add baby");
       console.error(error);

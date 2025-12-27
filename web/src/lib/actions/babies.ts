@@ -80,6 +80,7 @@ export async function createBaby(data: { name: string; birthDate?: string }) {
 
   revalidatePath("/");
   revalidatePath("/babies");
+  revalidatePath(`/baby/${newBaby.id}`);
 
   return newBaby;
 }
@@ -107,6 +108,7 @@ export async function updateBaby(
 
   revalidatePath("/");
   revalidatePath("/babies");
+  revalidatePath(`/baby/${babyId}`);
 
   return updatedBaby;
 }
@@ -124,6 +126,7 @@ export async function deleteBaby(babyId: string) {
 
   revalidatePath("/");
   revalidatePath("/babies");
+  revalidatePath(`/baby/${babyId}`);
 }
 
 export async function shareBaby(babyId: string, email: string, role: "viewer" | "editor" = "editor") {

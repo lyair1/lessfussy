@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, createContext, useContext } from "react";
+import { useState, createContext, useContext, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { UserButton } from "@clerk/nextjs";
 import {
   Baby,
@@ -10,7 +10,6 @@ import {
   History,
   Settings,
   Menu,
-  X,
   ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -41,12 +40,28 @@ const BabyContext = createContext<BabyContextType>({
 
 export const useBaby = () => useContext(BabyContext);
 
-const navItems = [
-  { href: "/", icon: Home, label: "Home" },
-  { href: "/history", icon: History, label: "History" },
-  { href: "/babies", icon: Baby, label: "Babies" },
-  { href: "/settings", icon: Settings, label: "Settings" },
-];
+// Helper to get current baby ID from URL
+function getBabyIdFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/baby\/([^/]+)/);
+  return match ? match[1] : null;
+}
+
+// Helper to build nav items based on current baby
+function getNavItems(babyId: string | null) {
+  if (babyId) {
+    return [
+      { href: `/baby/${babyId}`, icon: Home, label: "Home" },
+      { href: `/baby/${babyId}/history`, icon: History, label: "History" },
+      { href: "/babies", icon: Baby, label: "Babies" },
+      { href: "/settings", icon: Settings, label: "Settings" },
+    ];
+  }
+  return [
+    { href: "/", icon: Home, label: "Home" },
+    { href: "/babies", icon: Baby, label: "Babies" },
+    { href: "/settings", icon: Settings, label: "Settings" },
+  ];
+}
 
 interface DashboardShellProps {
   user: User;
@@ -56,10 +71,70 @@ interface DashboardShellProps {
 
 export function DashboardShell({ user, babies, children }: DashboardShellProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [selectedBaby, setSelectedBaby] = useState<BabyWithMeta | null>(
-    babies[0] || null
-  );
+  
+  // Get baby ID from URL
+  const babyIdFromUrl = getBabyIdFromPath(pathname);
+  
+  // Find the baby from URL or default to first baby
+  const [selectedBaby, setSelectedBaby] = useState<BabyWithMeta | null>(() => {
+    if (babyIdFromUrl) {
+      return babies.find((b) => b.id === babyIdFromUrl) || babies[0] || null;
+    }
+    return babies[0] || null;
+  });
+
+  // Sync selectedBaby with URL changes
+  useEffect(() => {
+    if (babyIdFromUrl) {
+      const baby = babies.find((b) => b.id === babyIdFromUrl);
+      if (baby && baby.id !== selectedBaby?.id) {
+        setSelectedBaby(baby);
+      }
+    }
+  }, [babyIdFromUrl, babies, selectedBaby?.id]);
+
+  // Handle baby selection from dropdown - navigate to that baby's page
+  const handleBabySelect = (baby: BabyWithMeta) => {
+    setSelectedBaby(baby);
+    
+    // If we're on a baby-specific route, navigate to the same route for the new baby
+    if (babyIdFromUrl) {
+      const newPath = pathname.replace(`/baby/${babyIdFromUrl}`, `/baby/${baby.id}`);
+      router.push(newPath);
+    } else {
+      // If we're on a non-baby route (like /), navigate to the baby's dashboard
+      router.push(`/baby/${baby.id}`);
+    }
+  };
+
+  const navItems = getNavItems(selectedBaby?.id || null);
+  
+  // Check if current path matches nav item (handle both exact and prefix matches)
+  const isActiveNav = (href: string) => {
+    if (href === "/" && pathname === "/") return true;
+    if (href.startsWith("/baby/") && pathname.startsWith("/baby/")) {
+      // For baby routes, check if it's the same baby and same sub-route
+      const hrefParts = href.split("/");
+      const pathParts = pathname.split("/");
+      
+      // Match /baby/[id] exactly or /baby/[id]/history exactly
+      if (hrefParts.length === 3 && pathParts.length === 3) {
+        // Both are /baby/[id] - home
+        return hrefParts[2] === pathParts[2];
+      }
+      if (hrefParts.length === 4 && pathParts.length >= 4) {
+        // Check /baby/[id]/history matches
+        return hrefParts[2] === pathParts[2] && hrefParts[3] === pathParts[3];
+      }
+      // /baby/[id] matches /baby/[id] but not /baby/[id]/something
+      if (hrefParts.length === 3 && pathParts.length > 3) {
+        return false;
+      }
+    }
+    return pathname === href;
+  };
 
   return (
     <BabyContext.Provider value={{ selectedBaby, setSelectedBaby, babies }}>
@@ -69,7 +144,7 @@ export function DashboardShell({ user, babies, children }: DashboardShellProps) 
           <div className="w-full flex h-14 items-center justify-between px-4 md:px-6">
             {/* Logo and baby selector */}
             <div className="flex items-center gap-3">
-              <Link href="/" className="flex items-center gap-2">
+              <Link href={selectedBaby ? `/baby/${selectedBaby.id}` : "/"} className="flex items-center gap-2">
                 <span className="text-xl font-bold text-primary">BabyTrack</span>
               </Link>
 
@@ -96,7 +171,7 @@ export function DashboardShell({ user, babies, children }: DashboardShellProps) 
                     {babies.map((baby) => (
                       <DropdownMenuItem
                         key={baby.id}
-                        onClick={() => setSelectedBaby(baby)}
+                        onClick={() => handleBabySelect(baby)}
                         className={cn(
                           "flex items-center gap-2",
                           selectedBaby?.id === baby.id && "bg-accent"
@@ -126,7 +201,7 @@ export function DashboardShell({ user, babies, children }: DashboardShellProps) 
               {navItems.map((item) => (
                 <Link key={item.href} href={item.href}>
                   <Button
-                    variant={pathname === item.href ? "secondary" : "ghost"}
+                    variant={isActiveNav(item.href) ? "secondary" : "ghost"}
                     size="sm"
                     className="gap-2"
                   >
@@ -167,7 +242,7 @@ export function DashboardShell({ user, babies, children }: DashboardShellProps) 
                           onClick={() => setMobileMenuOpen(false)}
                         >
                           <Button
-                            variant={pathname === item.href ? "secondary" : "ghost"}
+                            variant={isActiveNav(item.href) ? "secondary" : "ghost"}
                             className="w-full justify-start gap-3 mb-1"
                           >
                             <item.icon className="h-5 w-5" />
@@ -196,7 +271,7 @@ export function DashboardShell({ user, babies, children }: DashboardShellProps) 
                   size="sm"
                   className={cn(
                     "flex flex-col items-center gap-1 h-auto py-2 px-3",
-                    pathname === item.href && "text-primary"
+                    isActiveNav(item.href) && "text-primary"
                   )}
                 >
                   <item.icon className="h-5 w-5" />
@@ -213,4 +288,3 @@ export function DashboardShell({ user, babies, children }: DashboardShellProps) 
     </BabyContext.Provider>
   );
 }
-
