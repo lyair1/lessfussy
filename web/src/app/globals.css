@@ -45,19 +45,19 @@
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
   
-  /* Custom baby tracker colors */
-  --color-lime: #c4e538;
-  --color-lime-dark: #a8c82e;
-  --color-cyan: #4dd0e1;
-  --color-cyan-dark: #00acc1;
-  --color-coral: #ff7043;
-  --color-coral-dark: #e64a19;
-  --color-navy: #1a1f2e;
-  --color-navy-light: #252b3d;
-  --color-navy-lighter: #2d3548;
-  --color-purple: #b388ff;
-  --color-pink: #f48fb1;
-  --color-yellow: #fff176;
+  /* Custom baby tracker colors - using CSS variables for theme switching */
+  --color-lime: var(--lime);
+  --color-lime-dark: var(--lime-dark);
+  --color-cyan: var(--cyan);
+  --color-cyan-dark: var(--cyan-dark);
+  --color-coral: var(--coral);
+  --color-coral-dark: var(--coral-dark);
+  --color-navy: var(--navy);
+  --color-navy-light: var(--navy-light);
+  --color-navy-lighter: var(--navy-lighter);
+  --color-purple: var(--purple);
+  --color-pink: var(--pink);
+  --color-yellow: var(--yellow);
 }
 
 /* Dark theme (default for baby tracker) */
@@ -94,28 +94,69 @@
   --sidebar-accent-foreground: #f5f5f5;
   --sidebar-border: rgba(255, 255, 255, 0.1);
   --sidebar-ring: #4dd0e1;
+  
+  /* Custom tracker colors for dark theme - bright/vibrant */
+  --lime: #c4e538;
+  --lime-dark: #a8c82e;
+  --cyan: #4dd0e1;
+  --cyan-dark: #00acc1;
+  --coral: #ff7043;
+  --coral-dark: #e64a19;
+  --navy: #1a1f2e;
+  --navy-light: #252b3d;
+  --navy-lighter: #2d3548;
+  --purple: #b388ff;
+  --pink: #f48fb1;
+  --yellow: #fff176;
 }
 
 /* Light theme option */
 .light {
-  --background: #f8fafc;
+  --background: #faf8f5;
   --foreground: #1a1f2e;
   --card: #ffffff;
   --card-foreground: #1a1f2e;
   --popover: #ffffff;
   --popover-foreground: #1a1f2e;
-  --primary: #c4e538;
-  --primary-foreground: #1a1f2e;
-  --secondary: #f1f5f9;
+  --primary: #7cb518;
+  --primary-foreground: #ffffff;
+  --secondary: #f0ebe3;
   --secondary-foreground: #1a1f2e;
-  --muted: #f1f5f9;
+  --muted: #f0ebe3;
   --muted-foreground: #64748b;
-  --accent: #4dd0e1;
-  --accent-foreground: #1a1f2e;
-  --destructive: #ef4444;
-  --border: #e2e8f0;
-  --input: #e2e8f0;
-  --ring: #4dd0e1;
+  --accent: #0891b2;
+  --accent-foreground: #ffffff;
+  --destructive: #dc2626;
+  --border: #e7e0d5;
+  --input: #e7e0d5;
+  --ring: #0891b2;
+  --chart-1: #7cb518;
+  --chart-2: #0891b2;
+  --chart-3: #ea580c;
+  --chart-4: #7c3aed;
+  --chart-5: #db2777;
+  --sidebar: #f5f2ed;
+  --sidebar-foreground: #1a1f2e;
+  --sidebar-primary: #7cb518;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ebe6dd;
+  --sidebar-accent-foreground: #1a1f2e;
+  --sidebar-border: #e7e0d5;
+  --sidebar-ring: #0891b2;
+  
+  /* Custom tracker colors for light theme - deeper/more saturated */
+  --lime: #65a30d;
+  --lime-dark: #4d7c0f;
+  --cyan: #0891b2;
+  --cyan-dark: #0e7490;
+  --coral: #ea580c;
+  --coral-dark: #c2410c;
+  --navy: #1e293b;
+  --navy-light: #334155;
+  --navy-lighter: #475569;
+  --purple: #7c3aed;
+  --pink: #db2777;
+  --yellow: #ca8a04;
 }
 
 @layer base {

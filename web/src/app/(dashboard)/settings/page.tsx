@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
 import { toast } from "sonner";
-import { Settings, Ruler, Thermometer, Clock, Save } from "lucide-react";
+import { Settings, Ruler, Thermometer, Clock, Save, Sun, Moon, Monitor } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -18,12 +19,19 @@ type TimeFormat = "12h" | "24h";
 
 export default function SettingsPage() {
   const router = useRouter();
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const [unitSystem, setUnitSystem] = useState<UnitSystem>("imperial");
   const [tempUnit, setTempUnit] = useState<TempUnit>("fahrenheit");
   const [timeFormat, setTimeFormat] = useState<TimeFormat>("12h");
+
+  // Prevent hydration mismatch for theme
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Track if there are unsaved changes
   const [hasChanges, setHasChanges] = useState(false);
@@ -228,6 +236,70 @@ export default function SettingsPage() {
                 )}
               >
                 24h
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Appearance Card */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sun className="h-5 w-5 text-yellow" />
+            Appearance
+          </CardTitle>
+          <CardDescription>
+            Choose your preferred color theme
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-base">Theme</Label>
+              <p className="text-sm text-muted-foreground">
+                {mounted
+                  ? theme === "system"
+                    ? "Follows system preference"
+                    : theme === "dark"
+                    ? "Dark mode"
+                    : "Light mode"
+                  : "Loading..."}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant={theme === "system" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setTheme("system")}
+                className={cn(
+                  theme === "system" && "bg-pink text-white"
+                )}
+              >
+                <Monitor className="h-4 w-4 mr-1" />
+                System
+              </Button>
+              <Button
+                variant={theme === "light" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setTheme("light")}
+                className={cn(
+                  theme === "light" && "bg-pink text-white"
+                )}
+              >
+                <Sun className="h-4 w-4 mr-1" />
+                Light
+              </Button>
+              <Button
+                variant={theme === "dark" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setTheme("dark")}
+                className={cn(
+                  theme === "dark" && "bg-pink text-white"
+                )}
+              >
+                <Moon className="h-4 w-4 mr-1" />
+                Dark
               </Button>
             </div>
           </div>
