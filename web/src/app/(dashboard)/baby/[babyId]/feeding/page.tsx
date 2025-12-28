@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { toast } from "sonner";
 import { X, Clock, Play, Pause, RotateCcw } from "lucide-react";
@@ -15,6 +15,16 @@ import { cn } from "@/lib/utils";
 type FeedingTab = "nursing" | "bottle";
 type NursingSide = "left" | "right";
 type BottleContent = "breast_milk" | "formula";
+
+// Format date for datetime-local input (local timezone, not UTC)
+function formatDateTimeLocal(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
 
 export default function FeedingPage() {
   const router = useRouter();
@@ -206,6 +216,35 @@ export default function FeedingPage() {
 
         {/* Nursing Tab */}
         <TabsContent value="nursing" className="space-y-6">
+          {/* Start Time - shown once nursing has started */}
+          {nursingStartTime && (
+            <div className="flex items-center justify-between py-3 border-b border-border">
+              <span className="text-muted-foreground">Start Time</span>
+              <Input
+                type="datetime-local"
+                value={formatDateTimeLocal(nursingStartTime)}
+                onChange={(e) => {
+                  const newStartTime = new Date(e.target.value);
+                  const oldStartTime = nursingStartTime;
+                  // Calculate the difference in seconds
+                  const diffSeconds = Math.floor(
+                    (oldStartTime.getTime() - newStartTime.getTime()) / 1000
+                  );
+                  // Adjust the active side's duration (or left if none active)
+                  if (diffSeconds !== 0) {
+                    if (activeSide === "right") {
+                      setRightDuration((d) => Math.max(0, d + diffSeconds));
+                    } else {
+                      setLeftDuration((d) => Math.max(0, d + diffSeconds));
+                    }
+                  }
+                  setNursingStartTime(newStartTime);
+                }}
+                className="w-auto bg-transparent border-0 text-right text-accent"
+              />
+            </div>
+          )}
+
           {/* Timer Display */}
           {(leftDuration > 0 || rightDuration > 0 || isTimerRunning) && (
             <div className="text-center">
@@ -255,6 +294,36 @@ export default function FeedingPage() {
             ))}
           </div>
 
+          {/* Duration Distribution Slider */}
+          {(leftDuration > 0 || rightDuration > 0) && (
+            <div className="space-y-3 px-4">
+              <div className="flex justify-between text-sm">
+                <span className="text-coral font-medium">
+                  Left: {formatDuration(leftDuration)}
+                </span>
+                <span className="text-coral font-medium">
+                  Right: {formatDuration(rightDuration)}
+                </span>
+              </div>
+              <Slider
+                value={[leftDuration]}
+                onValueChange={([newLeft]) => {
+                  const total = leftDuration + rightDuration;
+                  const clampedLeft = Math.max(0, Math.min(total, newLeft));
+                  setLeftDuration(clampedLeft);
+                  setRightDuration(total - clampedLeft);
+                }}
+                min={0}
+                max={leftDuration + rightDuration}
+                step={1}
+                className="w-full"
+              />
+              <p className="text-center text-xs text-muted-foreground">
+                Drag to adjust time distribution
+              </p>
+            </div>
+          )}
+
           {/* Reset button */}
           {(leftDuration > 0 || rightDuration > 0) && (
             <div className="flex justify-center">
@@ -299,7 +368,7 @@ export default function FeedingPage() {
             <span className="text-muted-foreground">Start Time</span>
             <Input
               type="datetime-local"
-              value={bottleStartTime.toISOString().slice(0, 16)}
+              value={formatDateTimeLocal(bottleStartTime)}
               onChange={(e) => setBottleStartTime(new Date(e.target.value))}
               className="w-auto bg-transparent border-0 text-right text-accent"
             />
@@ -347,9 +416,24 @@ export default function FeedingPage() {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Amount (optional)</span>
-              <span className="text-accent">
-                {amount.toFixed(2)} {amountUnit}
-              </span>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  value={amount}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value);
+                    if (!isNaN(val) && val >= 0) {
+                      const max = amountUnit === "oz" ? 12 : 350;
+                      setAmount(Math.min(val, max));
+                    }
+                  }}
+                  min={0}
+                  max={amountUnit === "oz" ? 12 : 350}
+                  step={amountUnit === "oz" ? 0.25 : 5}
+                  className="w-20 text-right bg-transparent border-border text-accent"
+                />
+                <span className="text-accent">{amountUnit}</span>
+              </div>
             </div>
             <Slider
               value={[amount]}
