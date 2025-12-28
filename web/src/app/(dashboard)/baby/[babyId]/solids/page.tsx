@@ -3,11 +3,19 @@
 import { useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { toast } from "sonner";
-import { X, Heart, Meh, Frown, AlertTriangle, Trash2 } from "lucide-react";
+import { Heart, Meh, Frown, AlertTriangle, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import {
+  TrackingContainer,
+  TrackingHeader,
+  TrackingContent,
+  DateTimeRow,
+  NotesInput,
+  SaveButton,
+  LabeledRow,
+} from "@/components/tracking/shared";
 import { createSolid } from "@/lib/actions/tracking";
 import { cn } from "@/lib/utils";
 
@@ -69,32 +77,14 @@ export default function SolidsPage() {
   };
 
   return (
-    <div className="max-w-lg mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <Button variant="ghost" size="icon" onClick={() => router.back()}>
-          <X className="h-6 w-6" />
-        </Button>
-        <h1 className="text-xl font-bold">Add Solids</h1>
-        <div className="w-10" />
-      </div>
-
-      <div className="space-y-6">
-        {/* Time */}
-        <div className="flex items-center justify-between py-3 border-b border-border">
-          <span className="text-muted-foreground">Time:</span>
-          <Input
-            type="datetime-local"
-            value={time.toISOString().slice(0, 16)}
-            onChange={(e) => setTime(new Date(e.target.value))}
-            className="w-auto bg-transparent border-0 text-right text-accent"
-          />
-        </div>
+    <TrackingContainer>
+      <TrackingHeader title="Add Solids" />
+      <TrackingContent>
+        <DateTimeRow label="Time:" value={time} onChange={setTime} />
 
         {/* Food */}
         <div className="space-y-3">
-          <div className="flex items-center justify-between py-3 border-b border-border">
-            <span className="text-muted-foreground">Food:</span>
+          <LabeledRow label="Food:">
             <div className="flex items-center gap-2">
               <Input
                 placeholder="Add food"
@@ -103,31 +93,19 @@ export default function SolidsPage() {
                 onKeyDown={(e) => e.key === "Enter" && addFood()}
                 className="w-32 bg-transparent border-0 text-right"
               />
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={addFood}
-                className="text-accent"
-              >
+              <Button variant="ghost" size="sm" onClick={addFood} className="text-accent">
                 add
               </Button>
             </div>
-          </div>
+          </LabeledRow>
 
           {/* Food Tags */}
           {foods.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {foods.map((food) => (
-                <Badge
-                  key={food}
-                  variant="secondary"
-                  className="flex items-center gap-1 px-3 py-1"
-                >
+                <Badge key={food} variant="secondary" className="flex items-center gap-1 px-3 py-1">
                   {food}
-                  <button
-                    onClick={() => removeFood(food)}
-                    className="ml-1 hover:text-destructive"
-                  >
+                  <button onClick={() => removeFood(food)} className="ml-1 hover:text-destructive">
                     <Trash2 className="h-3 w-3" />
                   </button>
                 </Badge>
@@ -143,11 +121,7 @@ export default function SolidsPage() {
             {reactionOptions.map((opt) => (
               <button
                 key={opt.value}
-                onClick={() =>
-                  setReaction(
-                    reaction === opt.value ? null : (opt.value as Reaction)
-                  )
-                }
+                onClick={() => setReaction(reaction === opt.value ? null : (opt.value as Reaction))}
                 className={cn(
                   "flex items-center gap-2 px-4 py-2 rounded-full transition-all",
                   "border-2",
@@ -163,28 +137,9 @@ export default function SolidsPage() {
           </div>
         </div>
 
-        {/* Notes */}
-        <div className="space-y-2">
-          <Label htmlFor="notes">Notes</Label>
-          <Input
-            id="notes"
-            placeholder="+ add note"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            className="bg-background"
-          />
-        </div>
-
-        {/* Save Button */}
-        <Button
-          className="w-full h-14 text-lg rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
-          onClick={handleSave}
-          disabled={saving}
-        >
-          {saving ? "Saving..." : "Save"}
-        </Button>
-      </div>
-    </div>
+        <NotesInput value={notes} onChange={setNotes} label="Notes" placeholder="+ add note" />
+        <SaveButton onClick={handleSave} saving={saving} />
+      </TrackingContent>
+    </TrackingContainer>
   );
 }
-

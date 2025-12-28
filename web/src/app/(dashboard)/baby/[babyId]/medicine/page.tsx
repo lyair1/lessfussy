@@ -3,10 +3,17 @@
 import { useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { toast } from "sonner";
-import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import {
+  TrackingContainer,
+  TrackingHeader,
+  TrackingContent,
+  DateTimeRow,
+  NotesInput,
+  SaveButton,
+  LabeledRow,
+} from "@/components/tracking/shared";
 import { createMedicine } from "@/lib/actions/tracking";
 import { cn } from "@/lib/utils";
 
@@ -53,38 +60,20 @@ export default function MedicinePage() {
   };
 
   return (
-    <div className="max-w-lg mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <Button variant="ghost" size="icon" onClick={() => router.back()}>
-          <X className="h-6 w-6" />
-        </Button>
-        <h1 className="text-xl font-bold">Medicine</h1>
-        <Button variant="ghost" size="icon"></Button>
-      </div>
-
-      <div className="space-y-6">
-        {/* Start Time */}
-        <div className="flex items-center justify-between py-3 border-b border-border">
-          <span className="text-muted-foreground">Start time:</span>
-          <Input
-            type="datetime-local"
-            value={time.toISOString().slice(0, 16)}
-            onChange={(e) => setTime(new Date(e.target.value))}
-            className="w-auto bg-transparent border-0 text-right text-accent"
-          />
-        </div>
+    <TrackingContainer>
+      <TrackingHeader title="Medicine" />
+      <TrackingContent>
+        <DateTimeRow label="Start time:" value={time} onChange={setTime} />
 
         {/* Medicine Type */}
-        <div className="flex items-center justify-between py-3 border-b border-border">
-          <span className="text-muted-foreground">Type:</span>
+        <LabeledRow label="Type:">
           <Input
             placeholder="Not Set"
             value={medicineName}
             onChange={(e) => setMedicineName(e.target.value)}
             className="w-48 bg-transparent border-0 text-right text-accent placeholder:text-accent"
           />
-        </div>
+        </LabeledRow>
 
         {/* Amount Section */}
         <div className="space-y-4">
@@ -120,27 +109,13 @@ export default function MedicinePage() {
           </div>
         </div>
 
-        {/* Notes */}
-        <div className="space-y-2">
-          <Label htmlFor="notes">Notes (optional)</Label>
-          <Input
-            id="notes"
-            placeholder="Add notes (optional)"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            className="bg-background"
-          />
-        </div>
-
-        {/* Save Button */}
-        <Button
-          className="w-full h-14 text-lg rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
-          onClick={handleSave}
-          disabled={saving}
-        >
-          {saving ? "Saving..." : "Save"}
-        </Button>
-      </div>
-    </div>
+        <NotesInput
+          value={notes}
+          onChange={setNotes}
+          placeholder="Add notes (optional)"
+        />
+        <SaveButton onClick={handleSave} saving={saving} />
+      </TrackingContent>
+    </TrackingContainer>
   );
 }

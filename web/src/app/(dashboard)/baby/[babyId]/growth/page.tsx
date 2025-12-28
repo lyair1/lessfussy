@@ -3,25 +3,25 @@
 import { useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { toast } from "sonner";
-import { X } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import {
+  TrackingContainer,
+  TrackingHeader,
+  TrackingContent,
+  DateTimeRow,
+  NotesInput,
+  SaveButton,
+  LabeledRow,
+} from "@/components/tracking/shared";
 import { createGrowthLog } from "@/lib/actions/tracking";
+import { formatDateLocal } from "@/lib/utils";
 
 export default function GrowthPage() {
   const router = useRouter();
   const params = useParams();
   const babyId = params.babyId as string;
 
-  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
-  const [time, setTime] = useState(
-    new Date().toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    })
-  );
+  const [dateTime, setDateTime] = useState(new Date());
   const [weight, setWeight] = useState<string>("");
   const [weightUnit, setWeightUnit] = useState<"lb" | "kg">("lb");
   const [height, setHeight] = useState<string>("");
@@ -46,8 +46,8 @@ export default function GrowthPage() {
     try {
       await createGrowthLog({
         babyId,
-        date,
-        time: new Date(`${date}T${time}`),
+        date: formatDateLocal(dateTime),
+        time: dateTime,
         weight: weight ? parseFloat(weight) : undefined,
         weightUnit: weight ? weightUnit : undefined,
         height: height ? parseFloat(height) : undefined,
@@ -69,42 +69,17 @@ export default function GrowthPage() {
   };
 
   return (
-    <div className="max-w-lg mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <Button variant="ghost" size="icon" onClick={() => router.back()}>
-          <X className="h-6 w-6" />
-        </Button>
-        <h1 className="text-xl font-bold">Add growth data</h1>
-        <div className="w-10" />
-      </div>
-
-      <div className="space-y-6">
-        {/* Date */}
-        <div className="flex items-center justify-between py-3 border-b border-border">
-          <span className="text-muted-foreground">Date:</span>
-          <Input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="w-auto bg-transparent border-0 text-right text-accent"
-          />
-        </div>
-
-        {/* Time */}
-        <div className="flex items-center justify-between py-3 border-b border-border">
-          <span className="text-muted-foreground">Time:</span>
-          <Input
-            type="time"
-            value={time}
-            onChange={(e) => setTime(e.target.value)}
-            className="w-auto bg-transparent border-0 text-right text-accent"
-          />
-        </div>
+    <TrackingContainer>
+      <TrackingHeader title="Add growth data" />
+      <TrackingContent>
+        <DateTimeRow
+          label="Date & Time:"
+          value={dateTime}
+          onChange={setDateTime}
+        />
 
         {/* Height */}
-        <div className="flex items-center justify-between py-3 border-b border-border">
-          <span className="text-muted-foreground">Height:</span>
+        <LabeledRow label="Height:">
           <div className="flex items-center gap-2">
             <Input
               type="number"
@@ -123,11 +98,10 @@ export default function GrowthPage() {
               <option value="cm">cm</option>
             </select>
           </div>
-        </div>
+        </LabeledRow>
 
         {/* Weight */}
-        <div className="flex items-center justify-between py-3 border-b border-border">
-          <span className="text-muted-foreground">Weight:</span>
+        <LabeledRow label="Weight:">
           <div className="flex items-center gap-2">
             <Input
               type="number"
@@ -146,11 +120,10 @@ export default function GrowthPage() {
               <option value="kg">kg</option>
             </select>
           </div>
-        </div>
+        </LabeledRow>
 
         {/* Head Circumference */}
-        <div className="flex items-center justify-between py-3 border-b border-border">
-          <span className="text-muted-foreground">Head circumference:</span>
+        <LabeledRow label="Head circumference:">
           <div className="flex items-center gap-2">
             <Input
               type="number"
@@ -169,30 +142,11 @@ export default function GrowthPage() {
               <option value="cm">cm</option>
             </select>
           </div>
-        </div>
+        </LabeledRow>
 
-        {/* Notes */}
-        <div className="space-y-2">
-          <Label htmlFor="notes">Notes (optional)</Label>
-          <Input
-            id="notes"
-            placeholder="Add notes..."
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            className="bg-background"
-          />
-        </div>
-
-        {/* Save Button */}
-        <Button
-          className="w-full h-14 text-lg rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
-          onClick={handleSave}
-          disabled={saving}
-        >
-          {saving ? "Saving..." : "Save"}
-        </Button>
-      </div>
-    </div>
+        <NotesInput value={notes} onChange={setNotes} />
+        <SaveButton onClick={handleSave} saving={saving} />
+      </TrackingContent>
+    </TrackingContainer>
   );
 }
-

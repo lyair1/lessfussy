@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { toast } from "sonner";
 import {
-  X,
   Clock,
   Square,
   Play,
@@ -28,20 +27,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  TrackingContainer,
+  TrackingHeader,
+  DateTimeRow,
+} from "@/components/tracking/shared";
+import {
   createSleepLog,
   getActiveSleep,
   updateSleepLog,
 } from "@/lib/actions/tracking";
-
-// Format date for datetime-local input (local timezone, not UTC)
-function formatDateTimeLocal(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
-}
 
 type Mood = "upset" | "content";
 type FallAsleepTime = "under_10_min" | "10_to_20_min" | "over_20_min";
@@ -91,8 +85,6 @@ export default function SleepPage() {
 
   const [saving, setSaving] = useState(false);
   const [loadingSession, setLoadingSession] = useState(true);
-  const [showTimePicker, setShowTimePicker] = useState(false);
-  const [tempStartTime, setTempStartTime] = useState<Date>(new Date());
 
   // Check for active sleep on mount
   useEffect(() => {
@@ -248,15 +240,8 @@ export default function SleepPage() {
   const duration = formatDuration(elapsedSeconds);
 
   return (
-    <div className="max-w-lg mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <Button variant="ghost" size="icon" onClick={() => router.back()}>
-          <X className="h-6 w-6" />
-        </Button>
-        <h1 className="text-xl font-bold">Add sleep</h1>
-        <Button variant="ghost"></Button>
-      </div>
+    <TrackingContainer>
+      <TrackingHeader title="Add sleep" />
 
       {loadingSession ? (
         <div className="flex items-center justify-center py-12">
@@ -264,35 +249,11 @@ export default function SleepPage() {
         </div>
       ) : (
         <div className="space-y-6">
-          {/* Start Time - clickable to edit */}
-          <div className="flex items-center justify-between py-3 border-b border-border">
-            <span className="text-muted-foreground">Start Time</span>
-            {startTime ? (
-              <button
-                onClick={() => {
-                  setTempStartTime(startTime);
-                  setShowTimePicker(true);
-                }}
-                className="text-accent hover:underline"
-              >
-                {startTime.toLocaleTimeString("en-US", {
-                  hour: "numeric",
-                  minute: "2-digit",
-                  hour12: true,
-                })}
-              </button>
-            ) : (
-              <button
-                onClick={() => {
-                  setTempStartTime(new Date());
-                  setShowTimePicker(true);
-                }}
-                className="text-accent hover:underline"
-              >
-                Set time
-              </button>
-            )}
-          </div>
+          <DateTimeRow
+            label="Start Time"
+            value={startTime || new Date()}
+            onChange={handleStartTimeChange}
+          />
 
           {/* Timer Display */}
           <div className="flex flex-col items-center py-8">
@@ -472,53 +433,6 @@ export default function SleepPage() {
           </div>
         </DialogContent>
       </Dialog>
-
-      {/* Time Picker Dialog */}
-      <Dialog open={showTimePicker} onOpenChange={setShowTimePicker}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-center">Set Start Time</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <Input
-              type="datetime-local"
-              value={formatDateTimeLocal(tempStartTime)}
-              max={formatDateTimeLocal(new Date())}
-              onChange={(e) => {
-                const newTime = new Date(e.target.value);
-                // Prevent future times
-                if (newTime <= new Date()) {
-                  setTempStartTime(newTime);
-                }
-              }}
-              className="w-full"
-            />
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => setShowTimePicker(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                className="flex-1"
-                onClick={() => {
-                  // Validate not in the future
-                  if (tempStartTime > new Date()) {
-                    toast.error("Start time cannot be in the future");
-                    return;
-                  }
-                  handleStartTimeChange(tempStartTime);
-                  setShowTimePicker(false);
-                }}
-              >
-                Confirm
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-    </div>
+    </TrackingContainer>
   );
 }

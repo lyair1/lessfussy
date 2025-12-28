@@ -3,10 +3,15 @@
 import { useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { toast } from "sonner";
-import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import {
+  TrackingContainer,
+  TrackingHeader,
+  TrackingContent,
+  DateTimeRow,
+  NotesInput,
+  SaveButton,
+} from "@/components/tracking/shared";
 import { createTemperature } from "@/lib/actions/tracking";
 import { cn } from "@/lib/utils";
 
@@ -76,27 +81,10 @@ export default function TemperaturePage() {
   };
 
   return (
-    <div className="max-w-lg mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <Button variant="ghost" size="icon" onClick={() => router.back()}>
-          <X className="h-6 w-6" />
-        </Button>
-        <h1 className="text-xl font-bold">Temperature</h1>
-        <div className="w-10" />
-      </div>
-
-      <div className="space-y-6">
-        {/* Start Time */}
-        <div className="flex items-center justify-between py-3 border-b border-border">
-          <span className="text-muted-foreground">Start time:</span>
-          <Input
-            type="datetime-local"
-            value={time.toISOString().slice(0, 16)}
-            onChange={(e) => setTime(new Date(e.target.value))}
-            className="w-auto bg-transparent border-0 text-right text-accent"
-          />
-        </div>
+    <TrackingContainer>
+      <TrackingHeader title="Temperature" />
+      <TrackingContent>
+        <DateTimeRow label="Start time:" value={time} onChange={setTime} />
 
         {/* Unit Toggle */}
         <div className="flex items-center justify-between">
@@ -198,27 +186,14 @@ export default function TemperaturePage() {
           </div>
         </div>
 
-        {/* Notes */}
-        <div className="space-y-2">
-          <Label htmlFor="notes">Notes</Label>
-          <Input
-            id="notes"
-            placeholder="+ add note"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            className="bg-background"
-          />
-        </div>
-
-        {/* Save Button */}
-        <Button
-          className="w-full h-14 text-lg rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
-          onClick={handleSave}
-          disabled={saving}
-        >
-          {saving ? "Saving..." : "Save"}
-        </Button>
-      </div>
-    </div>
+        <NotesInput
+          value={notes}
+          onChange={setNotes}
+          label="Notes"
+          placeholder="+ add note"
+        />
+        <SaveButton onClick={handleSave} saving={saving} />
+      </TrackingContent>
+    </TrackingContainer>
   );
 }

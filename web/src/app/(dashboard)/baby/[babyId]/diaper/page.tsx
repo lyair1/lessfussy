@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
-  X,
   Droplet,
   Cloud,
   CloudRain,
@@ -12,10 +11,15 @@ import {
   Toilet,
   AlertTriangle,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import {
+  TrackingContainer,
+  TrackingHeader,
+  TrackingContent,
+  DateTimeRow,
+  NotesInput,
+  SaveButton,
+} from "@/components/tracking/shared";
 import { createDiaper, createPottyLog } from "@/lib/actions/tracking";
 import { cn } from "@/lib/utils";
 
@@ -26,28 +30,13 @@ const diaperOptions = [
   { value: "pee", label: "Pee", icon: Droplet, color: "text-cyan" },
   { value: "poo", label: "Poo", icon: Cloud, color: "text-yellow" },
   { value: "mixed", label: "Mixed", icon: CloudRain, color: "text-coral" },
-  {
-    value: "dry",
-    label: "Dry",
-    icon: CircleDashed,
-    color: "text-muted-foreground",
-  },
+  { value: "dry", label: "Dry", icon: CircleDashed, color: "text-muted-foreground" },
 ];
 
 const pottyOptions = [
-  {
-    value: "sat_but_dry",
-    label: "Sat but dry",
-    icon: CircleDashed,
-    color: "text-muted-foreground",
-  },
+  { value: "sat_but_dry", label: "Sat but dry", icon: CircleDashed, color: "text-muted-foreground" },
   { value: "success", label: "Potty", icon: Toilet, color: "text-primary" },
-  {
-    value: "accident",
-    label: "Accident",
-    icon: AlertTriangle,
-    color: "text-coral",
-  },
+  { value: "accident", label: "Accident", icon: AlertTriangle, color: "text-coral" },
 ];
 
 export default function DiaperPage() {
@@ -109,17 +98,8 @@ export default function DiaperPage() {
   };
 
   return (
-    <div className="max-w-lg mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <Button variant="ghost" size="icon" onClick={() => router.back()}>
-          <X className="h-6 w-6" />
-        </Button>
-        <h1 className="text-xl font-bold">
-          Add {activeTab === "diaper" ? "diaper" : "potty"}
-        </h1>
-        <Button variant="ghost" size="icon"></Button>
-      </div>
+    <TrackingContainer>
+      <TrackingHeader title={`Add ${activeTab === "diaper" ? "diaper" : "potty"}`} />
 
       {/* Tabs */}
       <Tabs
@@ -144,16 +124,7 @@ export default function DiaperPage() {
 
         {/* Diaper Tab */}
         <TabsContent value="diaper" className="space-y-6">
-          {/* Time */}
-          <div className="flex items-center justify-between py-3 border-b border-border">
-            <span className="text-muted-foreground">Start time:</span>
-            <Input
-              type="datetime-local"
-              value={time.toISOString().slice(0, 16)}
-              onChange={(e) => setTime(new Date(e.target.value))}
-              className="w-auto bg-transparent border-0 text-right text-accent"
-            />
-          </div>
+          <DateTimeRow label="Start time:" value={time} onChange={setTime} />
 
           {/* Type Selection */}
           <div className="flex justify-center gap-4 py-6">
@@ -175,31 +146,12 @@ export default function DiaperPage() {
             ))}
           </div>
 
-          {/* Notes */}
-          <div className="space-y-2">
-            <Label htmlFor="notes">Notes (optional)</Label>
-            <Input
-              id="notes"
-              placeholder="Add notes..."
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="bg-background"
-            />
-          </div>
+          <NotesInput value={notes} onChange={setNotes} />
         </TabsContent>
 
         {/* Potty Tab */}
         <TabsContent value="potty" className="space-y-6">
-          {/* Time */}
-          <div className="flex items-center justify-between py-3 border-b border-border">
-            <span className="text-muted-foreground">Start time:</span>
-            <Input
-              type="datetime-local"
-              value={time.toISOString().slice(0, 16)}
-              onChange={(e) => setTime(new Date(e.target.value))}
-              className="w-auto bg-transparent border-0 text-right text-accent"
-            />
-          </div>
+          <DateTimeRow label="Start time:" value={time} onChange={setTime} />
 
           {/* Type Selection */}
           <div className="flex justify-center gap-4 py-6">
@@ -216,39 +168,23 @@ export default function DiaperPage() {
                 )}
               >
                 <opt.icon className={cn("h-8 w-8", opt.color)} />
-                <span className="text-xs font-medium text-center px-1">
-                  {opt.label}
-                </span>
+                <span className="text-xs font-medium text-center px-1">{opt.label}</span>
               </button>
             ))}
           </div>
 
-          {/* Notes */}
-          <div className="space-y-2">
-            <Label htmlFor="potty-notes">Notes (optional)</Label>
-            <Input
-              id="potty-notes"
-              placeholder="Add notes..."
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="bg-background"
-            />
-          </div>
+          <NotesInput value={notes} onChange={setNotes} id="potty-notes" />
         </TabsContent>
       </Tabs>
 
       {/* Save Button */}
       <div className="mt-6">
-        <Button
-          className="w-full h-14 text-lg rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+        <SaveButton
           onClick={handleSave}
-          disabled={
-            saving || (activeTab === "diaper" ? !diaperType : !pottyType)
-          }
-        >
-          {saving ? "Saving..." : "Save"}
-        </Button>
+          saving={saving}
+          disabled={activeTab === "diaper" ? !diaperType : !pottyType}
+        />
       </div>
-    </div>
+    </TrackingContainer>
   );
 }

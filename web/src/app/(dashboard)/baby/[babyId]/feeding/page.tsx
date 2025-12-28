@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { toast } from "sonner";
-import { X, Play, Pause } from "lucide-react";
+import { Play, Pause } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -16,7 +16,13 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import {
+  TrackingContainer,
+  TrackingHeader,
+  DateTimeRow,
+  NotesInput,
+  SaveButton,
+} from "@/components/tracking/shared";
 import {
   createFeeding,
   getLastFeeding,
@@ -30,16 +36,6 @@ import { cn } from "@/lib/utils";
 type FeedingTab = "nursing" | "bottle";
 type NursingSide = "left" | "right";
 type BottleContent = "breast_milk" | "formula";
-
-// Format date for datetime-local input (local timezone, not UTC)
-function formatDateTimeLocal(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
-}
 
 export default function FeedingPage() {
   const router = useRouter();
@@ -296,6 +292,43 @@ export default function FeedingPage() {
     setNotes("");
   };
 
+  const handleNursingStartTimeChange = async (newStartTime: Date) => {
+    if (!nursingStartTime) return;
+
+    const oldStartTime = nursingStartTime;
+    // Calculate the difference in seconds
+    const diffSeconds = Math.floor(
+      (oldStartTime.getTime() - newStartTime.getTime()) / 1000
+    );
+    // Calculate new durations - add time to active side
+    let newLeftDuration = leftDuration;
+    let newRightDuration = rightDuration;
+    if (diffSeconds !== 0) {
+      if (activeSide === "right") {
+        newRightDuration = Math.max(0, rightDuration + diffSeconds);
+        setRightDuration(newRightDuration);
+      } else {
+        newLeftDuration = Math.max(0, leftDuration + diffSeconds);
+        setLeftDuration(newLeftDuration);
+      }
+    }
+    setNursingStartTime(newStartTime);
+    // Persist the changes
+    try {
+      await startOrUpdateActiveNursing({
+        babyId,
+        startTime: newStartTime,
+        leftDuration: newLeftDuration,
+        rightDuration: newRightDuration,
+        pausedDuration,
+        currentStatus: getCurrentStatus(),
+        notes: notes || undefined,
+      });
+    } catch (error) {
+      console.error("Failed to persist start time change:", error);
+    }
+  };
+
   const handleSaveNursing = async () => {
     if (!babyId) {
       toast.error("Baby not found");
@@ -358,15 +391,8 @@ export default function FeedingPage() {
   };
 
   return (
-    <div className="max-w-lg mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <Button variant="ghost" size="icon" onClick={() => router.back()}>
-          <X className="h-6 w-6" />
-        </Button>
-        <h1 className="text-xl font-bold">Add feeding</h1>
-        <Button variant="ghost" size="icon"></Button>
-      </div>
+    <TrackingContainer>
+      <TrackingHeader title="Add feeding" />
 
       {/* Tabs */}
       <Tabs
@@ -399,58 +425,11 @@ export default function FeedingPage() {
             <>
               {/* Start Time - shown once nursing has started */}
               {nursingStartTime && (
-                <div className="flex items-center justify-between py-3 border-b border-border">
-                  <span className="text-muted-foreground">Start Time</span>
-                  <Input
-                    type="datetime-local"
-                    value={formatDateTimeLocal(nursingStartTime)}
-                    onChange={async (e) => {
-                      const newStartTime = new Date(e.target.value);
-                      const oldStartTime = nursingStartTime;
-                      // Calculate the difference in seconds
-                      const diffSeconds = Math.floor(
-                        (oldStartTime.getTime() - newStartTime.getTime()) / 1000
-                      );
-                      // Calculate new durations - add time to active side
-                      let newLeftDuration = leftDuration;
-                      let newRightDuration = rightDuration;
-                      if (diffSeconds !== 0) {
-                        if (activeSide === "right") {
-                          newRightDuration = Math.max(
-                            0,
-                            rightDuration + diffSeconds
-                          );
-                          setRightDuration(newRightDuration);
-                        } else {
-                          newLeftDuration = Math.max(
-                            0,
-                            leftDuration + diffSeconds
-                          );
-                          setLeftDuration(newLeftDuration);
-                        }
-                      }
-                      setNursingStartTime(newStartTime);
-                      // Persist the changes
-                      try {
-                        await startOrUpdateActiveNursing({
-                          babyId,
-                          startTime: newStartTime,
-                          leftDuration: newLeftDuration,
-                          rightDuration: newRightDuration,
-                          pausedDuration,
-                          currentStatus: getCurrentStatus(),
-                          notes: notes || undefined,
-                        });
-                      } catch (error) {
-                        console.error(
-                          "Failed to persist start time change:",
-                          error
-                        );
-                      }
-                    }}
-                    className="w-auto bg-transparent border-0 text-right text-accent"
-                  />
-                </div>
+                <DateTimeRow
+                  label="Start Time"
+                  value={nursingStartTime}
+                  onChange={handleNursingStartTimeChange}
+                />
               )}
 
               {/* Timer Display */}
@@ -538,17 +517,7 @@ export default function FeedingPage() {
                 </div>
               )}
 
-              {/* Notes */}
-              <div className="space-y-2">
-                <Label htmlFor="notes">Notes (optional)</Label>
-                <Input
-                  id="notes"
-                  placeholder="Add notes..."
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  className="bg-background"
-                />
-              </div>
+              <NotesInput value={notes} onChange={setNotes} />
 
               {/* Action Buttons */}
               <div className="flex gap-3">
@@ -614,16 +583,7 @@ export default function FeedingPage() {
 
         {/* Bottle Tab */}
         <TabsContent value="bottle" className="space-y-6">
-          {/* Start Time */}
-          <div className="flex items-center justify-between py-3 border-b border-border">
-            <span className="text-muted-foreground">Start Time</span>
-            <Input
-              type="datetime-local"
-              value={formatDateTimeLocal(bottleStartTime)}
-              onChange={(e) => setBottleStartTime(new Date(e.target.value))}
-              className="w-auto bg-transparent border-0 text-right text-accent"
-            />
-          </div>
+          <DateTimeRow label="Start Time" value={bottleStartTime} onChange={setBottleStartTime} />
 
           {/* Content Type */}
           <div className="flex items-center justify-between py-3 border-b border-border">
@@ -699,28 +659,10 @@ export default function FeedingPage() {
             </div>
           </div>
 
-          {/* Notes */}
-          <div className="space-y-2">
-            <Label htmlFor="bottle-notes">Notes (optional)</Label>
-            <Input
-              id="bottle-notes"
-              placeholder="Add notes..."
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="bg-background"
-            />
-          </div>
-
-          {/* Save Button */}
-          <Button
-            className="w-full h-14 text-lg rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
-            onClick={handleSaveBottle}
-            disabled={saving}
-          >
-            {saving ? "Saving..." : "Save"}
-          </Button>
+          <NotesInput value={notes} onChange={setNotes} id="bottle-notes" />
+          <SaveButton onClick={handleSaveBottle} saving={saving} />
         </TabsContent>
       </Tabs>
-    </div>
+    </TrackingContainer>
   );
 }

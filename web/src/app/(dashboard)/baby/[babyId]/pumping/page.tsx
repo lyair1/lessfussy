@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { toast } from "sonner";
-import { X, Play, Pause, RotateCcw } from "lucide-react";
+import { Play, Pause, RotateCcw } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -15,7 +15,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import {
+  TrackingContainer,
+  TrackingHeader,
+  TrackingContent,
+  DateTimeRow,
+  NotesInput,
+} from "@/components/tracking/shared";
 import {
   getActivePumping,
   startOrUpdateActivePumping,
@@ -25,16 +31,6 @@ import {
 import { cn } from "@/lib/utils";
 
 type AmountMode = "total" | "left_right";
-
-// Format date for datetime-local input (local timezone, not UTC)
-function formatDateTimeLocal(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
-}
 
 export default function PumpingPage() {
   const router = useRouter();
@@ -292,32 +288,20 @@ export default function PumpingPage() {
   };
 
   return (
-    <div className="max-w-lg mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <Button variant="ghost" size="icon" onClick={() => router.back()}>
-          <X className="h-6 w-6" />
-        </Button>
-        <h1 className="text-xl font-bold">Add pumping</h1>
-        <Button variant="ghost" size="icon"></Button>
-      </div>
+    <TrackingContainer>
+      <TrackingHeader title="Add pumping" />
 
       {loadingSession ? (
         <div className="flex items-center justify-center py-12">
           <div className="text-muted-foreground">Loading session...</div>
         </div>
       ) : (
-        <div className="space-y-6">
-          {/* Start Time - always shown for manual entry */}
-          <div className="flex items-center justify-between py-3 border-b border-border">
-            <span className="text-muted-foreground">Start Time</span>
-            <Input
-              type="datetime-local"
-              value={formatDateTimeLocal(startTime)}
-              onChange={(e) => setStartTime(new Date(e.target.value))}
-              className="w-auto bg-transparent border-0 text-right text-accent"
-            />
-          </div>
+        <TrackingContent>
+          <DateTimeRow
+            label="Start Time"
+            value={startTime}
+            onChange={setStartTime}
+          />
 
           {/* Duration Section */}
           <div className="py-3 border-b border-border">
@@ -579,17 +563,11 @@ export default function PumpingPage() {
             </div>
           )}
 
-          {/* Notes */}
-          <div className="space-y-2">
-            <Label htmlFor="notes">Notes (optional)</Label>
-            <Input
-              id="notes"
-              placeholder="+ add note"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="bg-background"
-            />
-          </div>
+          <NotesInput
+            value={notes}
+            onChange={setNotes}
+            placeholder="+ add note"
+          />
 
           {/* Action Buttons */}
           <div className="flex gap-3">
@@ -647,8 +625,8 @@ export default function PumpingPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-        </div>
+        </TrackingContent>
       )}
-    </div>
+    </TrackingContainer>
   );
 }
