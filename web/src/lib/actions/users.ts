@@ -1,7 +1,7 @@
 "use server";
 
 import { auth } from "@clerk/nextjs/server";
-import { db, users } from "@/lib/db";
+import { db, users, DEFAULT_FAVORITE_ACTIVITIES } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
@@ -60,5 +60,49 @@ export async function updateUserSettings(settings: {
 
   revalidatePath("/settings");
   revalidatePath("/");
+}
+
+export async function getFavoriteActivities(): Promise<string[]> {
+  const { userId } = await auth();
+  if (!userId) return DEFAULT_FAVORITE_ACTIVITIES;
+
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+  });
+
+  return user?.favoriteActivities ?? DEFAULT_FAVORITE_ACTIVITIES;
+}
+
+export async function toggleFavoriteActivity(activityId: string) {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Not authenticated");
+
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+  });
+
+  const currentFavorites = user?.favoriteActivities ?? DEFAULT_FAVORITE_ACTIVITIES;
+  
+  let newFavorites: string[];
+  if (currentFavorites.includes(activityId)) {
+    // Remove from favorites
+    newFavorites = currentFavorites.filter((id) => id !== activityId);
+  } else {
+    // Add to favorites
+    newFavorites = [...currentFavorites, activityId];
+  }
+
+  await db
+    .update(users)
+    .set({
+      favoriteActivities: newFavorites,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, userId));
+
+  revalidatePath("/");
+  revalidatePath("/baby");
+  
+  return newFavorites;
 }
 

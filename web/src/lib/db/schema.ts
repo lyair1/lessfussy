@@ -54,6 +54,9 @@ export const solidReactionEnum = pgEnum("solid_reaction", [
   "allergy_or_sensitivity",
 ]);
 
+// Default favorite activities for new users
+export const DEFAULT_FAVORITE_ACTIVITIES = ["feeding", "sleep"];
+
 // Users table - synced from Clerk
 export const users = pgTable("users", {
   id: text("id").primaryKey(), // Clerk user ID
@@ -64,6 +67,7 @@ export const users = pgTable("users", {
   unitSystem: unitSystemEnum("unit_system").default("imperial").notNull(),
   tempUnit: tempUnitEnum("temp_unit").default("fahrenheit").notNull(),
   timeFormat: timeFormatEnum("time_format").default("12h").notNull(),
+  favoriteActivities: text("favorite_activities").array(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

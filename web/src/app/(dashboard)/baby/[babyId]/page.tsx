@@ -1,5 +1,6 @@
 import { TrackingGrid } from "@/components/tracking/tracking-grid";
 import { getBaby } from "@/lib/actions/babies";
+import { getFavoriteActivities } from "@/lib/actions/users";
 import { notFound } from "next/navigation";
 
 interface BabyDashboardPageProps {
@@ -8,7 +9,10 @@ interface BabyDashboardPageProps {
 
 export default async function BabyDashboardPage({ params }: BabyDashboardPageProps) {
   const { babyId } = await params;
-  const baby = await getBaby(babyId);
+  const [baby, favorites] = await Promise.all([
+    getBaby(babyId),
+    getFavoriteActivities(),
+  ]);
 
   if (!baby) {
     notFound();
@@ -23,7 +27,7 @@ export default async function BabyDashboardPage({ params }: BabyDashboardPagePro
         </p>
       </div>
 
-      <TrackingGrid babyId={babyId} />
+      <TrackingGrid babyId={babyId} initialFavorites={favorites} />
     </div>
   );
 }
