@@ -1,15 +1,30 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { toast } from "sonner";
-import { X, Clock, Play, Pause, RotateCcw } from "lucide-react";
+import { X, Play, Pause } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { createFeeding, getLastFeeding } from "@/lib/actions/tracking";
+import {
+  createFeeding,
+  getLastFeeding,
+  getActiveNursing,
+  startOrUpdateActiveNursing,
+  cancelActiveNursing,
+  completeActiveNursing,
+} from "@/lib/actions/tracking";
 import { cn } from "@/lib/utils";
 
 type FeedingTab = "nursing" | "bottle";
@@ -39,11 +54,13 @@ export default function FeedingPage() {
   const [activeSide, setActiveSide] = useState<NursingSide | null>(null);
   const [leftDuration, setLeftDuration] = useState(0);
   const [rightDuration, setRightDuration] = useState(0);
+  const [pausedDuration, setPausedDuration] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [nursingStartTime, setNursingStartTime] = useState<Date | null>(null);
 
   // Bottle state
-  const [bottleContent, setBottleContent] = useState<BottleContent>("breast_milk");
+  const [bottleContent, setBottleContent] =
+    useState<BottleContent>("breast_milk");
   const [amountUnit, setAmountUnit] = useState<"oz" | "ml">("oz");
   const [amount, setAmount] = useState(4);
   const [bottleStartTime, setBottleStartTime] = useState(new Date());
@@ -51,45 +68,186 @@ export default function FeedingPage() {
 
   // Loading state
   const [saving, setSaving] = useState(false);
+  const [loadingSession, setLoadingSession] = useState(true);
+  const [showDismissConfirm, setShowDismissConfirm] = useState(false);
 
-  // Fetch last feeding to determine last side
+  // Current status for persistence: which state is the timer in?
+  // "left" = timer running on left, "right" = timer running on right, "paused" = timer stopped
+  const getCurrentStatus = (): "left" | "right" | "paused" => {
+    if (!isTimerRunning) return "paused";
+    return activeSide || "paused";
+  };
+
+  // Load active nursing session and last feeding info on mount
   useEffect(() => {
-    async function fetchLastFeeding() {
+    async function loadSession() {
       if (!babyId) return;
       try {
-        const last = await getLastFeeding(babyId);
-        if (last?.side && last.side !== "both") {
-          setLastSide(last.side as NursingSide);
+        // Check for active nursing session first
+        const activeSession = await getActiveNursing(babyId);
+        if (activeSession) {
+          // Restore the session
+          const startTime = new Date(activeSession.startTime);
+          const lastPersisted = activeSession.lastPersistedAt
+            ? new Date(activeSession.lastPersistedAt)
+            : new Date();
+          const savedStatus = activeSession.currentStatus as
+            | "left"
+            | "right"
+            | "paused"
+            | null;
+
+          // Calculate time elapsed since last persist
+          const timeSinceLastPersist = Math.floor(
+            (Date.now() - lastPersisted.getTime()) / 1000
+          );
+
+          // Add elapsed time to the appropriate duration based on saved status
+          let left = activeSession.leftDuration || 0;
+          let right = activeSession.rightDuration || 0;
+          let paused = activeSession.pausedDuration || 0;
+
+          if (savedStatus === "left") {
+            left += timeSinceLastPersist;
+          } else if (savedStatus === "right") {
+            right += timeSinceLastPersist;
+          } else if (savedStatus === "paused") {
+            paused += timeSinceLastPersist;
+          }
+
+          setNursingStartTime(startTime);
+          setLeftDuration(left);
+          setRightDuration(right);
+          setPausedDuration(paused);
+
+          // Restore the active side and timer state
+          if (savedStatus === "left") {
+            setActiveSide("left");
+            setIsTimerRunning(true);
+          } else if (savedStatus === "right") {
+            setActiveSide("right");
+            setIsTimerRunning(true);
+          } else {
+            // Paused - determine which side was last active
+            if (left > 0 && right === 0) setActiveSide("left");
+            else if (right > 0) setActiveSide("right");
+            else setActiveSide(null);
+            setIsTimerRunning(false);
+          }
+
+          setNotes(activeSession.notes || "");
+        } else {
+          // No active session, get last feeding for "last side" hint
+          const last = await getLastFeeding(babyId);
+          if (last?.side && last.side !== "both") {
+            setLastSide(last.side as NursingSide);
+          }
         }
       } catch (error) {
         console.error(error);
+      } finally {
+        setLoadingSession(false);
       }
     }
-    fetchLastFeeding();
+    loadSession();
   }, [babyId]);
 
-  // Timer logic
+  // Persist nursing session to DB (only called on state changes)
+  const persistSession = useCallback(
+    async (overrideStatus?: "left" | "right" | "paused") => {
+      if (!babyId || !nursingStartTime) return;
+
+      const status = overrideStatus ?? getCurrentStatus();
+
+      try {
+        await startOrUpdateActiveNursing({
+          babyId,
+          startTime: nursingStartTime,
+          leftDuration,
+          rightDuration,
+          pausedDuration,
+          currentStatus: status,
+          notes: notes || undefined,
+        });
+      } catch (error) {
+        console.error("Failed to persist nursing session:", error);
+      }
+    },
+    [
+      babyId,
+      nursingStartTime,
+      leftDuration,
+      rightDuration,
+      pausedDuration,
+      notes,
+      getCurrentStatus,
+    ]
+  );
+
+  // Timer logic - increments the appropriate duration every second
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isTimerRunning && activeSide) {
-      interval = setInterval(() => {
-        if (activeSide === "left") {
-          setLeftDuration((d) => d + 1);
-        } else {
-          setRightDuration((d) => d + 1);
-        }
-      }, 1000);
-    }
+    // Only start timer if we have a session
+    if (!nursingStartTime) return;
+
+    const interval = setInterval(() => {
+      if (isTimerRunning && activeSide === "left") {
+        setLeftDuration((d) => d + 1);
+      } else if (isTimerRunning && activeSide === "right") {
+        setRightDuration((d) => d + 1);
+      } else if (!isTimerRunning && (leftDuration > 0 || rightDuration > 0)) {
+        // Timer is paused but session exists - increment paused time
+        setPausedDuration((d) => d + 1);
+      }
+    }, 1000);
+
     return () => clearInterval(interval);
-  }, [isTimerRunning, activeSide]);
+  }, [
+    isTimerRunning,
+    activeSide,
+    nursingStartTime,
+    leftDuration,
+    rightDuration,
+  ]);
+
+  // Persist when state changes (start, pause, switch sides)
+  const prevStateRef = useRef<{ running: boolean; side: NursingSide | null }>({
+    running: false,
+    side: null,
+  });
+  useEffect(() => {
+    const prev = prevStateRef.current;
+    const stateChanged =
+      prev.running !== isTimerRunning || prev.side !== activeSide;
+
+    // Persist on state transitions (but not on initial load)
+    if (
+      stateChanged &&
+      nursingStartTime &&
+      (leftDuration > 0 || rightDuration > 0 || pausedDuration > 0)
+    ) {
+      persistSession();
+    }
+
+    prevStateRef.current = { running: isTimerRunning, side: activeSide };
+  }, [
+    isTimerRunning,
+    activeSide,
+    nursingStartTime,
+    persistSession,
+    leftDuration,
+    rightDuration,
+    pausedDuration,
+  ]);
 
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+    return `${mins.toString().padStart(2, "0")}:${secs
+      .toString()
+      .padStart(2, "0")}`;
   };
 
-  const handleSidePress = (side: NursingSide) => {
+  const handleSidePress = async (side: NursingSide) => {
     if (activeSide === side && isTimerRunning) {
       // Pause current side
       setIsTimerRunning(false);
@@ -98,20 +256,44 @@ export default function FeedingPage() {
       setIsTimerRunning(true);
     } else {
       // Switch to new side or start
+      const startTime = nursingStartTime || new Date();
       if (!nursingStartTime) {
-        setNursingStartTime(new Date());
+        setNursingStartTime(startTime);
+        // Immediately persist to DB when starting
+        try {
+          await startOrUpdateActiveNursing({
+            babyId,
+            startTime,
+            leftDuration: 0,
+            rightDuration: 0,
+            pausedDuration: 0,
+            currentStatus: side,
+            notes: notes || undefined,
+          });
+        } catch (error) {
+          console.error("Failed to start nursing session:", error);
+        }
       }
       setActiveSide(side);
       setIsTimerRunning(true);
     }
   };
 
-  const resetNursing = () => {
+  const resetNursing = async () => {
+    // Cancel the active session in DB
+    try {
+      await cancelActiveNursing(babyId);
+    } catch (error) {
+      console.error("Failed to cancel nursing session:", error);
+    }
+
     setActiveSide(null);
     setLeftDuration(0);
     setRightDuration(0);
+    setPausedDuration(0);
     setIsTimerRunning(false);
     setNursingStartTime(null);
+    setNotes("");
   };
 
   const handleSaveNursing = async () => {
@@ -127,18 +309,13 @@ export default function FeedingPage() {
 
     setSaving(true);
     try {
-      let side: "left" | "right" | "both" = "both";
-      if (leftDuration > 0 && rightDuration === 0) side = "left";
-      if (rightDuration > 0 && leftDuration === 0) side = "right";
-
-      await createFeeding({
-        babyId,
-        type: "nursing",
+      // Complete the active nursing session (sets endTime, clears lastPersistedAt & currentStatus)
+      await completeActiveNursing(babyId, {
         startTime: nursingStartTime || new Date(),
         endTime: new Date(),
-        side,
         leftDuration,
         rightDuration,
+        pausedDuration,
         notes: notes || undefined,
       });
 
@@ -188,9 +365,7 @@ export default function FeedingPage() {
           <X className="h-6 w-6" />
         </Button>
         <h1 className="text-xl font-bold">Add feeding</h1>
-        <Button variant="ghost" size="icon">
-          <Clock className="h-5 w-5" />
-        </Button>
+        <Button variant="ghost" size="icon"></Button>
       </div>
 
       {/* Tabs */}
@@ -216,149 +391,225 @@ export default function FeedingPage() {
 
         {/* Nursing Tab */}
         <TabsContent value="nursing" className="space-y-6">
-          {/* Start Time - shown once nursing has started */}
-          {nursingStartTime && (
-            <div className="flex items-center justify-between py-3 border-b border-border">
-              <span className="text-muted-foreground">Start Time</span>
-              <Input
-                type="datetime-local"
-                value={formatDateTimeLocal(nursingStartTime)}
-                onChange={(e) => {
-                  const newStartTime = new Date(e.target.value);
-                  const oldStartTime = nursingStartTime;
-                  // Calculate the difference in seconds
-                  const diffSeconds = Math.floor(
-                    (oldStartTime.getTime() - newStartTime.getTime()) / 1000
-                  );
-                  // Adjust the active side's duration (or left if none active)
-                  if (diffSeconds !== 0) {
-                    if (activeSide === "right") {
-                      setRightDuration((d) => Math.max(0, d + diffSeconds));
-                    } else {
-                      setLeftDuration((d) => Math.max(0, d + diffSeconds));
-                    }
-                  }
-                  setNursingStartTime(newStartTime);
-                }}
-                className="w-auto bg-transparent border-0 text-right text-accent"
-              />
+          {loadingSession ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-muted-foreground">Loading session...</div>
             </div>
-          )}
+          ) : (
+            <>
+              {/* Start Time - shown once nursing has started */}
+              {nursingStartTime && (
+                <div className="flex items-center justify-between py-3 border-b border-border">
+                  <span className="text-muted-foreground">Start Time</span>
+                  <Input
+                    type="datetime-local"
+                    value={formatDateTimeLocal(nursingStartTime)}
+                    onChange={async (e) => {
+                      const newStartTime = new Date(e.target.value);
+                      const oldStartTime = nursingStartTime;
+                      // Calculate the difference in seconds
+                      const diffSeconds = Math.floor(
+                        (oldStartTime.getTime() - newStartTime.getTime()) / 1000
+                      );
+                      // Calculate new durations - add time to active side
+                      let newLeftDuration = leftDuration;
+                      let newRightDuration = rightDuration;
+                      if (diffSeconds !== 0) {
+                        if (activeSide === "right") {
+                          newRightDuration = Math.max(
+                            0,
+                            rightDuration + diffSeconds
+                          );
+                          setRightDuration(newRightDuration);
+                        } else {
+                          newLeftDuration = Math.max(
+                            0,
+                            leftDuration + diffSeconds
+                          );
+                          setLeftDuration(newLeftDuration);
+                        }
+                      }
+                      setNursingStartTime(newStartTime);
+                      // Persist the changes
+                      try {
+                        await startOrUpdateActiveNursing({
+                          babyId,
+                          startTime: newStartTime,
+                          leftDuration: newLeftDuration,
+                          rightDuration: newRightDuration,
+                          pausedDuration,
+                          currentStatus: getCurrentStatus(),
+                          notes: notes || undefined,
+                        });
+                      } catch (error) {
+                        console.error(
+                          "Failed to persist start time change:",
+                          error
+                        );
+                      }
+                    }}
+                    className="w-auto bg-transparent border-0 text-right text-accent"
+                  />
+                </div>
+              )}
 
-          {/* Timer Display */}
-          {(leftDuration > 0 || rightDuration > 0 || isTimerRunning) && (
-            <div className="text-center">
-              <div className="text-4xl font-bold font-mono">
-                {formatDuration(leftDuration + rightDuration)}
+              {/* Timer Display */}
+              {(leftDuration > 0 || rightDuration > 0 || isTimerRunning) && (
+                <div className="text-center">
+                  <div className="text-4xl font-bold font-mono">
+                    {formatDuration(leftDuration + rightDuration)}
+                  </div>
+                  <p className="text-muted-foreground text-sm mt-1">
+                    Total duration
+                  </p>
+                </div>
+              )}
+
+              {/* Side Buttons */}
+              <div className="flex gap-4 justify-center">
+                {(["left", "right"] as const).map((side) => (
+                  <div key={side} className="relative">
+                    {lastSide === side && !activeSide && (
+                      <span className="absolute -top-2 -left-2 bg-card text-xs px-2 py-1 rounded-full border border-border z-10">
+                        Last Side
+                      </span>
+                    )}
+                    <button
+                      onClick={() => handleSidePress(side)}
+                      className={cn(
+                        "w-32 h-32 rounded-full flex flex-col items-center justify-center gap-2 transition-all",
+                        "border-2 border-dashed",
+                        activeSide === side && isTimerRunning
+                          ? "bg-coral text-white border-coral timer-pulse"
+                          : activeSide === side
+                          ? "bg-coral/80 text-white border-coral"
+                          : "bg-coral/20 text-coral border-coral/50 hover:bg-coral/30"
+                      )}
+                    >
+                      {activeSide === side && isTimerRunning ? (
+                        <Pause className="h-8 w-8" />
+                      ) : (
+                        <Play className="h-8 w-8" />
+                      )}
+                      <span className="font-bold uppercase">{side}</span>
+                      {(side === "left" ? leftDuration : rightDuration) > 0 && (
+                        <span className="text-sm">
+                          {formatDuration(
+                            side === "left" ? leftDuration : rightDuration
+                          )}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                ))}
               </div>
-              <p className="text-muted-foreground text-sm mt-1">
-                Total duration
-              </p>
-            </div>
-          )}
 
-          {/* Side Buttons */}
-          <div className="flex gap-4 justify-center">
-            {(["left", "right"] as const).map((side) => (
-              <div key={side} className="relative">
-                {lastSide === side && !activeSide && (
-                  <span className="absolute -top-2 -left-2 bg-card text-xs px-2 py-1 rounded-full border border-border z-10">
-                    Last Side
-                  </span>
-                )}
-                <button
-                  onClick={() => handleSidePress(side)}
-                  className={cn(
-                    "w-32 h-32 rounded-full flex flex-col items-center justify-center gap-2 transition-all",
-                    "border-2 border-dashed",
-                    activeSide === side && isTimerRunning
-                      ? "bg-coral text-white border-coral timer-pulse"
-                      : activeSide === side
-                      ? "bg-coral/80 text-white border-coral"
-                      : "bg-coral/20 text-coral border-coral/50 hover:bg-coral/30"
-                  )}
-                >
-                  {activeSide === side && isTimerRunning ? (
-                    <Pause className="h-8 w-8" />
-                  ) : (
-                    <Play className="h-8 w-8" />
-                  )}
-                  <span className="font-bold uppercase">{side}</span>
-                  {(side === "left" ? leftDuration : rightDuration) > 0 && (
-                    <span className="text-sm">
-                      {formatDuration(side === "left" ? leftDuration : rightDuration)}
+              {/* Duration Distribution Slider */}
+              {(leftDuration > 0 || rightDuration > 0) && (
+                <div className="space-y-3 px-4">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-coral font-medium">
+                      Left: {formatDuration(leftDuration)}
                     </span>
+                    <span className="text-coral font-medium">
+                      Right: {formatDuration(rightDuration)}
+                    </span>
+                  </div>
+                  <Slider
+                    value={[leftDuration]}
+                    onValueChange={([newLeft]) => {
+                      const total = leftDuration + rightDuration;
+                      const clampedLeft = Math.max(0, Math.min(total, newLeft));
+                      setLeftDuration(clampedLeft);
+                      setRightDuration(total - clampedLeft);
+                    }}
+                    onValueCommit={async () => {
+                      // Persist when user releases the slider
+                      await persistSession();
+                    }}
+                    min={0}
+                    max={leftDuration + rightDuration}
+                    step={1}
+                    className="w-full"
+                  />
+                  <p className="text-center text-xs text-muted-foreground">
+                    Drag to adjust time distribution
+                  </p>
+                </div>
+              )}
+
+              {/* Notes */}
+              <div className="space-y-2">
+                <Label htmlFor="notes">Notes (optional)</Label>
+                <Input
+                  id="notes"
+                  placeholder="Add notes..."
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  className="bg-background"
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3">
+                {(leftDuration > 0 || rightDuration > 0) && (
+                  <Button
+                    variant="outline"
+                    className="flex-1 h-14 text-lg rounded-full"
+                    onClick={() => setShowDismissConfirm(true)}
+                    disabled={saving}
+                  >
+                    Dismiss
+                  </Button>
+                )}
+                <Button
+                  className={cn(
+                    "h-14 text-lg rounded-full bg-primary text-primary-foreground hover:bg-primary/90",
+                    leftDuration > 0 || rightDuration > 0 ? "flex-1" : "w-full"
                   )}
-                </button>
+                  onClick={handleSaveNursing}
+                  disabled={
+                    saving || (leftDuration === 0 && rightDuration === 0)
+                  }
+                >
+                  {saving ? "Saving..." : "Save"}
+                </Button>
               </div>
-            ))}
-          </div>
 
-          {/* Duration Distribution Slider */}
-          {(leftDuration > 0 || rightDuration > 0) && (
-            <div className="space-y-3 px-4">
-              <div className="flex justify-between text-sm">
-                <span className="text-coral font-medium">
-                  Left: {formatDuration(leftDuration)}
-                </span>
-                <span className="text-coral font-medium">
-                  Right: {formatDuration(rightDuration)}
-                </span>
-              </div>
-              <Slider
-                value={[leftDuration]}
-                onValueChange={([newLeft]) => {
-                  const total = leftDuration + rightDuration;
-                  const clampedLeft = Math.max(0, Math.min(total, newLeft));
-                  setLeftDuration(clampedLeft);
-                  setRightDuration(total - clampedLeft);
-                }}
-                min={0}
-                max={leftDuration + rightDuration}
-                step={1}
-                className="w-full"
-              />
-              <p className="text-center text-xs text-muted-foreground">
-                Drag to adjust time distribution
-              </p>
-            </div>
-          )}
-
-          {/* Reset button */}
-          {(leftDuration > 0 || rightDuration > 0) && (
-            <div className="flex justify-center">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={resetNursing}
-                className="text-muted-foreground"
+              {/* Dismiss Confirmation Dialog */}
+              <Dialog
+                open={showDismissConfirm}
+                onOpenChange={setShowDismissConfirm}
               >
-                <RotateCcw className="h-4 w-4 mr-2" />
-                Reset
-              </Button>
-            </div>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Dismiss session?</DialogTitle>
+                    <DialogDescription>
+                      Are you sure you want to dismiss this nursing session? All
+                      recorded time will be lost.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowDismissConfirm(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={() => {
+                        setShowDismissConfirm(false);
+                        resetNursing();
+                      }}
+                    >
+                      Dismiss
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </>
           )}
-
-          {/* Notes */}
-          <div className="space-y-2">
-            <Label htmlFor="notes">Notes (optional)</Label>
-            <Input
-              id="notes"
-              placeholder="Add notes..."
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="bg-background"
-            />
-          </div>
-
-          {/* Save Button */}
-          <Button
-            className="w-full h-14 text-lg rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
-            onClick={handleSaveNursing}
-            disabled={saving || (leftDuration === 0 && rightDuration === 0)}
-          >
-            {saving ? "Saving..." : "Save"}
-          </Button>
         </TabsContent>
 
         {/* Bottle Tab */}
@@ -385,8 +636,7 @@ export default function FeedingPage() {
                   size="sm"
                   onClick={() => setBottleContent(type)}
                   className={cn(
-                    bottleContent === type &&
-                      "bg-accent text-accent-foreground"
+                    bottleContent === type && "bg-accent text-accent-foreground"
                   )}
                 >
                   {type === "breast_milk" ? "Breast milk" : "Formula"}
@@ -474,4 +724,3 @@ export default function FeedingPage() {
     </div>
   );
 }
-

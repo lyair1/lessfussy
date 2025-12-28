@@ -109,10 +109,21 @@ export default function HistoryPage() {
     switch (entry.entryType) {
       case "feeding": {
         if (entry.type === "nursing") {
-          const left = entry.leftDuration || 0;
-          const right = entry.rightDuration || 0;
-          const total = Math.floor((left + right) / 60);
-          return `Nursing - ${total} min`;
+          // Use stored durations directly
+          const leftSecs = entry.leftDuration || 0;
+          const rightSecs = entry.rightDuration || 0;
+          const totalSecs = leftSecs + rightSecs;
+          
+          if (totalSecs > 0) {
+            const totalMins = Math.floor(totalSecs / 60);
+            const leftMins = Math.floor(leftSecs / 60);
+            const rightMins = Math.floor(rightSecs / 60);
+            if (leftMins > 0 && rightMins > 0) {
+              return `Nursing - ${totalMins} min (L: ${leftMins}, R: ${rightMins})`;
+            }
+            return `Nursing - ${totalMins} min`;
+          }
+          return "Nursing - in progress...";
         } else {
           const amount = entry.amount;
           const unit = entry.amountUnit || "oz";

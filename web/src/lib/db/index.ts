@@ -7,10 +7,13 @@ let _db: NeonHttpDatabase<typeof schema> | null = null;
 function getDbConnection() {
   if (_db) return _db;
   
-  const connectionString = process.env.DATABASE_URL;
+  let connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
     throw new Error("DATABASE_URL environment variable is not set");
   }
+  
+  // Ensure we only use the first URL if multiple are concatenated
+  connectionString = connectionString.split('\n')[0].trim();
   
   const sql = neon(connectionString);
   _db = drizzle(sql, { schema });

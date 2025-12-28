@@ -4,7 +4,7 @@ import { auth } from "@clerk/nextjs/server";
 import { db, feedings, sleepLogs, diapers, pottyLogs, pumpings, medicines, temperatures, activities, growthLogs, solids } from "@/lib/db";
 import { getBaby } from "./babies";
 import { revalidatePath } from "next/cache";
-import { eq, desc, and, gte, lte } from "drizzle-orm";
+import { eq, desc, and, gte, lte, isNull } from "drizzle-orm";
 import type {
   NewFeeding,
   NewSleepLog,
@@ -42,6 +42,176 @@ export async function getLastFeeding(babyId: string) {
     where: eq(feedings.babyId, babyId),
     orderBy: [desc(feedings.startTime)],
   });
+}
+
+export async function getActiveNursing(babyId: string) {
+  await checkBabyAccess(babyId);
+
+  return await db.query.feedings.findFirst({
+    where: and(
+      eq(feedings.babyId, babyId),
+      eq(feedings.type, "nursing"),
+      isNull(feedings.endTime)
+    ),
+    orderBy: [desc(feedings.startTime)],
+  });
+}
+
+export async function startOrUpdateActiveNursing(data: {
+  babyId: string;
+  startTime: Date;
+  leftDuration: number; // seconds on left at this moment
+  rightDuration: number; // seconds on right at this moment
+  pausedDuration: number; // seconds paused at this moment
+  currentStatus: "left" | "right" | "paused";
+  notes?: string;
+}) {
+  await checkBabyAccess(data.babyId);
+
+  const now = new Date();
+
+  // Determine side based on which breasts have been used
+  let side: "left" | "right" | "both" = "both";
+  if (data.leftDuration > 0 && data.rightDuration === 0) side = "left";
+  else if (data.rightDuration > 0 && data.leftDuration === 0) side = "right";
+
+  // Check if there's already an active nursing session
+  const existing = await db.query.feedings.findFirst({
+    where: and(
+      eq(feedings.babyId, data.babyId),
+      eq(feedings.type, "nursing"),
+      isNull(feedings.endTime)
+    ),
+  });
+
+  if (existing) {
+    // Update existing session
+    const [result] = await db
+      .update(feedings)
+      .set({
+        startTime: data.startTime,
+        side,
+        leftDuration: data.leftDuration,
+        rightDuration: data.rightDuration,
+        pausedDuration: data.pausedDuration,
+        lastPersistedAt: now,
+        currentStatus: data.currentStatus,
+        notes: data.notes,
+        updatedAt: now,
+      })
+      .where(eq(feedings.id, existing.id))
+      .returning();
+    return result;
+  } else {
+    // Create new active session
+    const [result] = await db
+      .insert(feedings)
+      .values({
+        babyId: data.babyId,
+        type: "nursing",
+        startTime: data.startTime,
+        endTime: null,
+        side,
+        leftDuration: data.leftDuration,
+        rightDuration: data.rightDuration,
+        pausedDuration: data.pausedDuration,
+        lastPersistedAt: now,
+        currentStatus: data.currentStatus,
+        notes: data.notes,
+      })
+      .returning();
+    return result;
+  }
+}
+
+export async function cancelActiveNursing(babyId: string) {
+  await checkBabyAccess(babyId);
+
+  // Find and delete the active nursing session
+  const existing = await db.query.feedings.findFirst({
+    where: and(
+      eq(feedings.babyId, babyId),
+      eq(feedings.type, "nursing"),
+      isNull(feedings.endTime)
+    ),
+  });
+
+  if (existing) {
+    await db.delete(feedings).where(eq(feedings.id, existing.id));
+  }
+
+  revalidatePath("/");
+}
+
+export async function completeActiveNursing(babyId: string, data: {
+  startTime: Date;
+  endTime: Date;
+  leftDuration: number; // final seconds on left
+  rightDuration: number; // final seconds on right
+  pausedDuration: number; // final seconds paused
+  notes?: string;
+}) {
+  await checkBabyAccess(babyId);
+
+  // Determine side based on which breasts were used
+  let side: "left" | "right" | "both" = "both";
+  if (data.leftDuration > 0 && data.rightDuration === 0) side = "left";
+  else if (data.rightDuration > 0 && data.leftDuration === 0) side = "right";
+
+  // Find the active nursing session
+  const existing = await db.query.feedings.findFirst({
+    where: and(
+      eq(feedings.babyId, babyId),
+      eq(feedings.type, "nursing"),
+      isNull(feedings.endTime)
+    ),
+  });
+
+  if (existing) {
+    // Complete the existing session - clear lastPersistedAt and currentStatus
+    const [result] = await db
+      .update(feedings)
+      .set({
+        startTime: data.startTime,
+        endTime: data.endTime,
+        side,
+        leftDuration: data.leftDuration,
+        rightDuration: data.rightDuration,
+        pausedDuration: data.pausedDuration,
+        lastPersistedAt: null,
+        currentStatus: null,
+        notes: data.notes,
+        updatedAt: new Date(),
+      })
+      .where(eq(feedings.id, existing.id))
+      .returning();
+    
+    revalidatePath("/");
+    revalidatePath("/history");
+    return result;
+  } else {
+    // No active session, create a completed one
+    const [result] = await db
+      .insert(feedings)
+      .values({
+        babyId,
+        type: "nursing",
+        startTime: data.startTime,
+        endTime: data.endTime,
+        side,
+        leftDuration: data.leftDuration,
+        rightDuration: data.rightDuration,
+        pausedDuration: data.pausedDuration,
+        lastPersistedAt: null,
+        currentStatus: null,
+        notes: data.notes,
+      })
+      .returning();
+    
+    revalidatePath("/");
+    revalidatePath("/history");
+    return result;
+  }
 }
 
 export async function updateFeeding(

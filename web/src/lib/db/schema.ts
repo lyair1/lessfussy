@@ -17,10 +17,26 @@ export const tempUnitEnum = pgEnum("temp_unit", ["fahrenheit", "celsius"]);
 export const timeFormatEnum = pgEnum("time_format", ["12h", "24h"]);
 export const shareRoleEnum = pgEnum("share_role", ["viewer", "editor"]);
 export const feedingTypeEnum = pgEnum("feeding_type", ["nursing", "bottle"]);
-export const bottleContentEnum = pgEnum("bottle_content", ["breast_milk", "formula"]);
-export const nursingSideEnum = pgEnum("nursing_side", ["left", "right", "both"]);
-export const diaperTypeEnum = pgEnum("diaper_type", ["pee", "poo", "mixed", "dry"]);
-export const pottyTypeEnum = pgEnum("potty_type", ["sat_but_dry", "success", "accident"]);
+export const bottleContentEnum = pgEnum("bottle_content", [
+  "breast_milk",
+  "formula",
+]);
+export const nursingSideEnum = pgEnum("nursing_side", [
+  "left",
+  "right",
+  "both",
+]);
+export const diaperTypeEnum = pgEnum("diaper_type", [
+  "pee",
+  "poo",
+  "mixed",
+  "dry",
+]);
+export const pottyTypeEnum = pgEnum("potty_type", [
+  "sat_but_dry",
+  "success",
+  "accident",
+]);
 export const moodEnum = pgEnum("mood", ["upset", "content"]);
 export const sleepMethodEnum = pgEnum("sleep_method", [
   "on_own_in_bed",
@@ -46,7 +62,12 @@ export const activityTypeEnum = pgEnum("activity_type", [
   "outdoor",
   "other",
 ]);
-export const medicineUnitEnum = pgEnum("medicine_unit", ["oz", "ml", "drops", "tsp"]);
+export const medicineUnitEnum = pgEnum("medicine_unit", [
+  "oz",
+  "ml",
+  "drops",
+  "tsp",
+]);
 export const solidReactionEnum = pgEnum("solid_reaction", [
   "loved_it",
   "meh",
@@ -107,10 +128,13 @@ export const feedings = pgTable("feedings", {
   type: feedingTypeEnum("type").notNull(),
   startTime: timestamp("start_time").notNull(),
   endTime: timestamp("end_time"),
-  // For nursing
-  side: nursingSideEnum("side"),
-  leftDuration: integer("left_duration"), // seconds
-  rightDuration: integer("right_duration"), // seconds
+  // For nursing - durations in seconds
+  side: nursingSideEnum("side"), // which side(s) were used (for completed sessions)
+  leftDuration: integer("left_duration"), // seconds on left (at last persist for in-progress, final for completed)
+  rightDuration: integer("right_duration"), // seconds on right
+  pausedDuration: integer("paused_duration"), // seconds paused
+  lastPersistedAt: timestamp("last_persisted_at"), // when durations were last saved (null for completed)
+  currentStatus: text("current_status"), // "left" | "right" | "paused" | null (for completed)
   // For bottle
   bottleContent: bottleContentEnum("bottle_content"),
   amount: real("amount"), // in oz or ml based on user preference
@@ -305,4 +329,3 @@ export type Temperature = typeof temperatures.$inferSelect;
 export type Activity = typeof activities.$inferSelect;
 export type GrowthLog = typeof growthLogs.$inferSelect;
 export type Solid = typeof solids.$inferSelect;
-

@@ -80,7 +80,11 @@ export async function POST(
     }
 
     const body = await request.json();
-    const { type, startTime, endTime, side, leftDuration, rightDuration, bottleContent, amount, amountUnit, notes } = body;
+    const { 
+      type, startTime, endTime, side, 
+      leftDuration, rightDuration, pausedDuration, 
+      bottleContent, amount, amountUnit, notes 
+    } = body;
 
     if (!type || !startTime) {
       return NextResponse.json({ error: "type and startTime are required" }, { status: 400 });
@@ -96,6 +100,7 @@ export async function POST(
         side,
         leftDuration,
         rightDuration,
+        pausedDuration,
         bottleContent,
         amount,
         amountUnit,
