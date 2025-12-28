@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { toast } from "sonner";
-import { X, Camera, Heart, Meh, Frown, AlertTriangle, Trash2 } from "lucide-react";
+import { X, Heart, Meh, Frown, AlertTriangle, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -174,15 +174,6 @@ export default function SolidsPage() {
             className="bg-background"
           />
         </div>
-
-        {/* Add Photo Button */}
-        <Button
-          variant="outline"
-          className="w-full gap-2 py-6 border-dashed"
-        >
-          <Camera className="h-5 w-5" />
-          add photo
-        </Button>
 
         {/* Save Button */}
         <Button

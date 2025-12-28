@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { toast } from "sonner";
-import { X, Clock } from "lucide-react";
+import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -60,9 +60,7 @@ export default function MedicinePage() {
           <X className="h-6 w-6" />
         </Button>
         <h1 className="text-xl font-bold">Medicine</h1>
-        <Button variant="ghost" size="icon">
-          <Clock className="h-5 w-5" />
-        </Button>
+        <Button variant="ghost" size="icon"></Button>
       </div>
 
       <div className="space-y-6">
@@ -146,4 +144,3 @@ export default function MedicinePage() {
     </div>
   );
 }
-

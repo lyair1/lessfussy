@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { toast } from "sonner";
-import { X, HelpCircle } from "lucide-react";
+import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,9 +28,9 @@ export default function TemperaturePage() {
   // Convert temperature when switching units
   const handleUnitChange = (newUnit: "F" | "C") => {
     if (newUnit === unit) return;
-    
+
     if (newUnit === "C") {
-      setTemperature(Math.round(((temperature - 32) * 5) / 9 * 10) / 10);
+      setTemperature(Math.round((((temperature - 32) * 5) / 9) * 10) / 10);
     } else {
       setTemperature(Math.round((temperature * 9) / 5 + 32 * 10) / 10);
     }
@@ -83,9 +83,7 @@ export default function TemperaturePage() {
           <X className="h-6 w-6" />
         </Button>
         <h1 className="text-xl font-bold">Temperature</h1>
-        <Button variant="ghost" size="icon">
-          <HelpCircle className="h-5 w-5" />
-        </Button>
+        <div className="w-10" />
       </div>
 
       <div className="space-y-6">
@@ -146,11 +144,13 @@ export default function TemperaturePage() {
           <div className="relative flex items-center">
             {/* Temperature Scale */}
             <div className="flex flex-col items-end mr-2 text-sm text-muted-foreground">
-              {tempMarks.filter((_, i) => i % 2 === 0).map((t) => (
-                <div key={t} className="h-6 flex items-center">
-                  {t}
-                </div>
-              ))}
+              {tempMarks
+                .filter((_, i) => i % 2 === 0)
+                .map((t) => (
+                  <div key={t} className="h-6 flex items-center">
+                    {t}
+                  </div>
+                ))}
             </div>
 
             {/* Thermometer Bar */}
@@ -159,7 +159,9 @@ export default function TemperaturePage() {
               <div
                 className="absolute bottom-0 left-0 right-0 rounded-b-full transition-all duration-200"
                 style={{
-                  height: `${((temperature - minTemp) / (maxTemp - minTemp)) * 100}%`,
+                  height: `${
+                    ((temperature - minTemp) / (maxTemp - minTemp)) * 100
+                  }%`,
                   background: `linear-gradient(to top, #ef4444 0%, #f97316 30%, #ffffff 60%, #ffffff 100%)`,
                 }}
               />
@@ -180,7 +182,9 @@ export default function TemperaturePage() {
               <div
                 className="absolute left-1/2 -translate-x-1/2 w-4 h-4 bg-white rounded-full border-2 border-muted-foreground shadow-lg pointer-events-none transition-all duration-200"
                 style={{
-                  bottom: `calc(${((temperature - minTemp) / (maxTemp - minTemp)) * 100}% - 8px)`,
+                  bottom: `calc(${
+                    ((temperature - minTemp) / (maxTemp - minTemp)) * 100
+                  }% - 8px)`,
                 }}
               />
             </div>
@@ -188,10 +192,7 @@ export default function TemperaturePage() {
             {/* Tick marks */}
             <div className="ml-2 h-80 flex flex-col justify-between py-2">
               {tempMarks.map((t) => (
-                <div
-                  key={t}
-                  className="w-3 h-px bg-muted-foreground/30"
-                />
+                <div key={t} className="w-3 h-px bg-muted-foreground/30" />
               ))}
             </div>
           </div>
@@ -221,4 +222,3 @@ export default function TemperaturePage() {
     </div>
   );
 }
-

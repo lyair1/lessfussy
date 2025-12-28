@@ -1,9 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { X, Clock, Droplet, Cloud, CloudRain, CircleDashed, Toilet, AlertTriangle } from "lucide-react";
+import {
+  X,
+  Droplet,
+  Cloud,
+  CloudRain,
+  CircleDashed,
+  Toilet,
+  AlertTriangle,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
@@ -18,21 +26,38 @@ const diaperOptions = [
   { value: "pee", label: "Pee", icon: Droplet, color: "text-cyan" },
   { value: "poo", label: "Poo", icon: Cloud, color: "text-yellow" },
   { value: "mixed", label: "Mixed", icon: CloudRain, color: "text-coral" },
-  { value: "dry", label: "Dry", icon: CircleDashed, color: "text-muted-foreground" },
+  {
+    value: "dry",
+    label: "Dry",
+    icon: CircleDashed,
+    color: "text-muted-foreground",
+  },
 ];
 
 const pottyOptions = [
-  { value: "sat_but_dry", label: "Sat but dry", icon: CircleDashed, color: "text-muted-foreground" },
+  {
+    value: "sat_but_dry",
+    label: "Sat but dry",
+    icon: CircleDashed,
+    color: "text-muted-foreground",
+  },
   { value: "success", label: "Potty", icon: Toilet, color: "text-primary" },
-  { value: "accident", label: "Accident", icon: AlertTriangle, color: "text-coral" },
+  {
+    value: "accident",
+    label: "Accident",
+    icon: AlertTriangle,
+    color: "text-coral",
+  },
 ];
 
 export default function DiaperPage() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const babyId = params.babyId as string;
 
-  const [activeTab, setActiveTab] = useState<"diaper" | "potty">("diaper");
+  const initialTab = searchParams.get("tab") === "potty" ? "potty" : "diaper";
+  const [activeTab, setActiveTab] = useState<"diaper" | "potty">(initialTab);
   const [time, setTime] = useState(new Date());
   const [diaperType, setDiaperType] = useState<DiaperType | null>(null);
   const [pottyType, setPottyType] = useState<PottyType | null>(null);
@@ -93,9 +118,7 @@ export default function DiaperPage() {
         <h1 className="text-xl font-bold">
           Add {activeTab === "diaper" ? "diaper" : "potty"}
         </h1>
-        <Button variant="ghost" size="icon">
-          <Clock className="h-5 w-5" />
-        </Button>
+        <Button variant="ghost" size="icon"></Button>
       </div>
 
       {/* Tabs */}
@@ -219,7 +242,9 @@ export default function DiaperPage() {
         <Button
           className="w-full h-14 text-lg rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
           onClick={handleSave}
-          disabled={saving || (activeTab === "diaper" ? !diaperType : !pottyType)}
+          disabled={
+            saving || (activeTab === "diaper" ? !diaperType : !pottyType)
+          }
         >
           {saving ? "Saving..." : "Save"}
         </Button>
@@ -227,4 +252,3 @@ export default function DiaperPage() {
     </div>
   );
 }
-

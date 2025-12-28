@@ -6,6 +6,6 @@ interface PottyPageProps {
 
 export default async function PottyPage({ params }: PottyPageProps) {
   const { babyId } = await params;
-  redirect(`/baby/${babyId}/diaper`);
+  redirect(`/baby/${babyId}/diaper?tab=potty`);
 }
 

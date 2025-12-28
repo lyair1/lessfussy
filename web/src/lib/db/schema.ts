@@ -193,7 +193,10 @@ export const pumpings = pgTable("pumpings", {
     .references(() => babies.id, { onDelete: "cascade" })
     .notNull(),
   startTime: timestamp("start_time").notNull(),
-  duration: integer("duration"), // seconds
+  endTime: timestamp("end_time"), // null = active session
+  duration: integer("duration"), // seconds accumulated (at last persist for active, final for completed)
+  lastPersistedAt: timestamp("last_persisted_at"), // when duration was last saved (null for completed)
+  currentStatus: text("current_status"), // "running" | "paused" | null (for completed)
   leftAmount: real("left_amount"),
   rightAmount: real("right_amount"),
   totalAmount: real("total_amount"),

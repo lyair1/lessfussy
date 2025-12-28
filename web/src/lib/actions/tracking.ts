@@ -331,6 +331,158 @@ export async function createPumping(data: Omit<NewPumping, "id" | "createdAt">) 
   return result;
 }
 
+export async function getActivePumping(babyId: string) {
+  await checkBabyAccess(babyId);
+
+  return await db.query.pumpings.findFirst({
+    where: and(eq(pumpings.babyId, babyId), isNull(pumpings.endTime)),
+    orderBy: [desc(pumpings.startTime)],
+  });
+}
+
+export async function startOrUpdateActivePumping(data: {
+  babyId: string;
+  startTime: Date;
+  duration: number; // seconds accumulated at this moment
+  currentStatus: "running" | "paused";
+  leftAmount?: number;
+  rightAmount?: number;
+  totalAmount?: number;
+  amountUnit?: "oz" | "ml";
+  amountMode?: "total" | "left_right";
+  notes?: string;
+}) {
+  await checkBabyAccess(data.babyId);
+
+  const now = new Date();
+
+  // Check if there's already an active pumping session
+  const existing = await db.query.pumpings.findFirst({
+    where: and(eq(pumpings.babyId, data.babyId), isNull(pumpings.endTime)),
+  });
+
+  if (existing) {
+    // Update existing session
+    const [result] = await db
+      .update(pumpings)
+      .set({
+        startTime: data.startTime,
+        duration: data.duration,
+        lastPersistedAt: now,
+        currentStatus: data.currentStatus,
+        leftAmount: data.leftAmount,
+        rightAmount: data.rightAmount,
+        totalAmount: data.totalAmount,
+        amountUnit: data.amountUnit,
+        notes: data.notes,
+      })
+      .where(eq(pumpings.id, existing.id))
+      .returning();
+    return result;
+  } else {
+    // Create new active session
+    const [result] = await db
+      .insert(pumpings)
+      .values({
+        babyId: data.babyId,
+        startTime: data.startTime,
+        endTime: null,
+        duration: data.duration,
+        lastPersistedAt: now,
+        currentStatus: data.currentStatus,
+        leftAmount: data.leftAmount,
+        rightAmount: data.rightAmount,
+        totalAmount: data.totalAmount,
+        amountUnit: data.amountUnit,
+        notes: data.notes,
+      })
+      .returning();
+    return result;
+  }
+}
+
+export async function cancelActivePumping(babyId: string) {
+  await checkBabyAccess(babyId);
+
+  // Find and delete the active pumping session
+  const existing = await db.query.pumpings.findFirst({
+    where: and(eq(pumpings.babyId, babyId), isNull(pumpings.endTime)),
+  });
+
+  if (existing) {
+    await db.delete(pumpings).where(eq(pumpings.id, existing.id));
+  }
+
+  revalidatePath("/");
+}
+
+export async function completeActivePumping(
+  babyId: string,
+  data: {
+    startTime: Date;
+    endTime: Date;
+    duration: number; // final duration in seconds
+    leftAmount?: number;
+    rightAmount?: number;
+    totalAmount?: number;
+    amountUnit?: "oz" | "ml";
+    notes?: string;
+  }
+) {
+  await checkBabyAccess(babyId);
+
+  // Find the active pumping session
+  const existing = await db.query.pumpings.findFirst({
+    where: and(eq(pumpings.babyId, babyId), isNull(pumpings.endTime)),
+  });
+
+  if (existing) {
+    // Complete the existing session - clear lastPersistedAt and currentStatus
+    const [result] = await db
+      .update(pumpings)
+      .set({
+        startTime: data.startTime,
+        endTime: data.endTime,
+        duration: data.duration,
+        lastPersistedAt: null,
+        currentStatus: null,
+        leftAmount: data.leftAmount,
+        rightAmount: data.rightAmount,
+        totalAmount: data.totalAmount,
+        amountUnit: data.amountUnit,
+        notes: data.notes,
+      })
+      .where(eq(pumpings.id, existing.id))
+      .returning();
+
+    revalidatePath("/");
+    revalidatePath("/history");
+    return result;
+  } else {
+    // No active session, create a completed one
+    const [result] = await db
+      .insert(pumpings)
+      .values({
+        babyId,
+        startTime: data.startTime,
+        endTime: data.endTime,
+        duration: data.duration,
+        lastPersistedAt: null,
+        currentStatus: null,
+        leftAmount: data.leftAmount,
+        rightAmount: data.rightAmount,
+        totalAmount: data.totalAmount,
+        amountUnit: data.amountUnit,
+        notes: data.notes,
+      })
+      .returning();
+
+    revalidatePath("/");
+    revalidatePath("/history");
+    return result;
+  }
+}
+
 export async function deletePumping(id: string, babyId: string) {
   await checkBabyAccess(babyId);
   await db.delete(pumpings).where(eq(pumpings.id, id));
