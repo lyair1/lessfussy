@@ -272,7 +272,7 @@ export async function getActiveSleep(babyId: string) {
   await checkBabyAccess(babyId);
 
   return await db.query.sleepLogs.findFirst({
-    where: and(eq(sleepLogs.babyId, babyId), eq(sleepLogs.endTime, null as unknown as Date)),
+    where: and(eq(sleepLogs.babyId, babyId), isNull(sleepLogs.endTime)),
     orderBy: [desc(sleepLogs.startTime)],
   });
 }
