@@ -100,7 +100,7 @@ export async function checkActivityConflicts(
   // Skip this check for pumping since it's a wildcard activity that can happen anytime
   if (ACTIVITIES_WITH_ACTIVE_SESSIONS.has(newActivityType) && newActivityType !== "pumping") {
     const conflictingActives = activeActivities.filter(active =>
-      active.type !== newActivityType // Can't have two of the same type active
+      active.type !== newActivityType && active.type !== "pumping" // Can't have two of the same type active, but pumping can run with anything
     );
 
     if (conflictingActives.length > 0) {
