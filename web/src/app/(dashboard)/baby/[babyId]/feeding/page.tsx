@@ -33,6 +33,7 @@ import {
   completeActiveNursing,
   getActivityConflicts,
   getActiveSleep,
+  createSleepLog,
   updateSleepLog,
 } from "@/lib/actions/tracking";
 import { cn, Conflict } from "@/lib/utils";
@@ -74,7 +75,15 @@ export default function FeedingPage() {
   // Conflict handling
   const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
   const [pendingConflicts, setPendingConflicts] = useState<Conflict[]>([]);
-  const [pendingAction, setPendingAction] = useState<(() => Promise<void>) | null>(null);
+  const [pendingAction, setPendingAction] = useState<
+    (() => Promise<void>) | null
+  >(null);
+
+  // Sleep prompt after nighttime feeding
+  const [sleepPromptOpen, setSleepPromptOpen] = useState(false);
+  const [pendingSleepStart, setPendingSleepStart] = useState<
+    (() => Promise<void>) | null
+  >(null);
 
   // Current status for persistence: which state is the timer in?
   // "left" = timer running on left, "right" = timer running on right, "paused" = timer stopped
@@ -252,6 +261,27 @@ export default function FeedingPage() {
       .padStart(2, "0")}`;
   };
 
+  // Check if current time is nighttime (8pm to 8am)
+  const isNighttime = (date: Date) => {
+    const hour = date.getHours();
+    return hour >= 20 || hour < 8; // 8pm (20) to 8am (8)
+  };
+
+  // Handle sleep prompt after nighttime feeding
+  const handleSleepPrompt = async () => {
+    setSleepPromptOpen(false);
+    if (pendingSleepStart) {
+      await pendingSleepStart();
+      setPendingSleepStart(null);
+    }
+  };
+
+  const dismissSleepPrompt = () => {
+    setSleepPromptOpen(false);
+    setPendingSleepStart(null);
+    router.push(`/baby/${babyId}`);
+  };
+
   // Helper to check conflicts and show dialog if needed
   const checkConflictsAndProceed = async (
     activityType: "feeding",
@@ -260,7 +290,12 @@ export default function FeedingPage() {
     endTime?: Date
   ) => {
     try {
-      const conflictResult = await getActivityConflicts(babyId, activityType, startTime, endTime);
+      const conflictResult = await getActivityConflicts(
+        babyId,
+        activityType,
+        startTime,
+        endTime
+      );
 
       if (conflictResult.hasConflicts) {
         setPendingConflicts(conflictResult.conflicts);
@@ -284,8 +319,11 @@ export default function FeedingPage() {
     try {
       // Special case: feeding conflicting with sleep -> stop sleep first, then start feeding
       const hasSleepConflict = pendingConflicts.some(
-        conflict => conflict.type === "active_conflict" &&
-        conflict.conflictingActivities.some(activity => activity.type === "sleep")
+        (conflict) =>
+          conflict.type === "active_conflict" &&
+          conflict.conflictingActivities.some(
+            (activity) => activity.type === "sleep"
+          )
       );
 
       if (hasSleepConflict) {
@@ -294,7 +332,9 @@ export default function FeedingPage() {
         if (activeSleep) {
           await updateSleepLog(activeSleep.id, babyId, {
             endTime: new Date(),
-            notes: activeSleep.notes ? `${activeSleep.notes} (Auto-completed when starting feeding)` : "Auto-completed when starting feeding"
+            notes: activeSleep.notes
+              ? `${activeSleep.notes} (Auto-completed when starting feeding)`
+              : "Auto-completed when starting feeding",
           });
           toast.success("Sleep session completed");
         }
@@ -304,7 +344,11 @@ export default function FeedingPage() {
       await pendingAction();
     } catch (error) {
       console.error("Failed to execute pending action:", error);
-      toast.error(`Failed to save: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      toast.error(
+        `Failed to save: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
     } finally {
       setPendingAction(null);
       setPendingConflicts([]);
@@ -334,15 +378,18 @@ export default function FeedingPage() {
           async () => {
             setNursingStartTime(startTime);
             // Immediately persist to DB when starting
-            await startOrUpdateActiveNursing({
-              babyId,
-              startTime,
-              leftDuration: 0,
-              rightDuration: 0,
-              pausedDuration: 0,
-              currentStatus: side,
-              notes: notes || undefined,
-            }, { allowOverride: true });
+            await startOrUpdateActiveNursing(
+              {
+                babyId,
+                startTime,
+                leftDuration: 0,
+                rightDuration: 0,
+                pausedDuration: 0,
+                currentStatus: side,
+                notes: notes || undefined,
+              },
+              { allowOverride: true }
+            );
           },
           startTime
         );
@@ -438,7 +485,30 @@ export default function FeedingPage() {
           });
 
           toast.success("Nursing session saved!");
-          router.push(`/baby/${babyId}`);
+
+          // Check if it's nighttime and prompt for sleep tracking
+          if (isNighttime(endTime)) {
+            setPendingSleepStart(() => async () => {
+              try {
+                await createSleepLog(
+                  {
+                    babyId,
+                    startTime: endTime,
+                  },
+                  { allowOverride: true }
+                );
+                toast.success("Sleep tracking started!");
+                router.push(`/baby/${babyId}/sleep`);
+              } catch (error) {
+                console.error("Failed to start sleep tracking:", error);
+                toast.error("Failed to start sleep tracking");
+                router.push(`/baby/${babyId}`);
+              }
+            });
+            setSleepPromptOpen(true);
+          } else {
+            router.push(`/baby/${babyId}`);
+          }
         } catch (error) {
           toast.error("Failed to save");
           console.error(error);
@@ -462,19 +532,45 @@ export default function FeedingPage() {
       async () => {
         setSaving(true);
         try {
-          await createFeeding({
-            babyId,
-            type: "bottle",
-            startTime: bottleStartTime,
-            endTime: bottleStartTime, // Bottle feedings are completed immediately
-            bottleContent,
-            amount,
-            amountUnit,
-            notes: notes || undefined,
-          }, { allowOverride: true });
+          await createFeeding(
+            {
+              babyId,
+              type: "bottle",
+              startTime: bottleStartTime,
+              endTime: bottleStartTime, // Bottle feedings are completed immediately
+              bottleContent,
+              amount,
+              amountUnit,
+              notes: notes || undefined,
+            },
+            { allowOverride: true }
+          );
 
           toast.success("Bottle feeding saved!");
-          router.push(`/baby/${babyId}`);
+
+          // Check if it's nighttime and prompt for sleep tracking
+          if (isNighttime(bottleStartTime)) {
+            setPendingSleepStart(() => async () => {
+              try {
+                await createSleepLog(
+                  {
+                    babyId,
+                    startTime: bottleStartTime,
+                  },
+                  { allowOverride: true }
+                );
+                toast.success("Sleep tracking started!");
+                router.push(`/baby/${babyId}/sleep`);
+              } catch (error) {
+                console.error("Failed to start sleep tracking:", error);
+                toast.error("Failed to start sleep tracking");
+                router.push(`/baby/${babyId}`);
+              }
+            });
+            setSleepPromptOpen(true);
+          } else {
+            router.push(`/baby/${babyId}`);
+          }
         } catch (error) {
           toast.error("Failed to save");
           console.error(error);
@@ -680,7 +776,11 @@ export default function FeedingPage() {
 
         {/* Bottle Tab */}
         <TabsContent value="bottle" className="space-y-6">
-          <DateTimeRow label="Start Time" value={bottleStartTime} onChange={setBottleStartTime} />
+          <DateTimeRow
+            label="Start Time"
+            value={bottleStartTime}
+            onChange={setBottleStartTime}
+          />
 
           {/* Content Type */}
           <div className="flex items-center justify-between py-3 border-b border-border">
@@ -771,11 +871,40 @@ export default function FeedingPage() {
         onCancel={handleConflictCancel}
         onGoToActivity={(activityType) => {
           if (activityType === "sleep") router.push(`/baby/${babyId}/sleep`);
-          if (activityType === "pumping") router.push(`/baby/${babyId}/pumping`);
+          if (activityType === "pumping")
+            router.push(`/baby/${babyId}/pumping`);
           // For feeding conflicts, stay on current page
         }}
         loading={saving}
       />
+
+      {/* Sleep Prompt Dialog */}
+      <Dialog open={sleepPromptOpen} onOpenChange={setSleepPromptOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-center">Is Rafa asleep?</DialogTitle>
+            <DialogDescription className="text-center">
+              It looks like it's nighttime. Would you like to start tracking
+              sleep?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex gap-3">
+            <Button
+              variant="outline"
+              onClick={dismissSleepPrompt}
+              className="flex-1"
+            >
+              Not asleep yet
+            </Button>
+            <Button
+              onClick={handleSleepPrompt}
+              className="flex-1 bg-cyan text-cyan-foreground hover:bg-cyan/90"
+            >
+              Start sleep tracking
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </TrackingContainer>
   );
 }
