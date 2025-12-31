@@ -18,7 +18,11 @@ export function LastFeeding({ feeding, babyId, babyName }: LastFeedingProps) {
   }
 
   const handleClick = () => {
-    router.push(`/baby/${babyId}/history`);
+    if (isActive) {
+      router.push(`/baby/${babyId}/feeding`);
+    } else {
+      router.push(`/baby/${babyId}/history`);
+    }
   };
 
   const formatFeedingDescription = () => {

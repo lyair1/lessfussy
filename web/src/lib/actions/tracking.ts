@@ -39,11 +39,8 @@ export async function getLastFeeding(babyId: string) {
   await checkBabyAccess(babyId);
 
   return await db.query.feedings.findFirst({
-    where: and(
-      eq(feedings.babyId, babyId),
-      isNotNull(feedings.endTime) // Only return completed feedings
-    ),
-    orderBy: [desc(feedings.endTime)],
+    where: eq(feedings.babyId, babyId),
+    orderBy: [desc(feedings.startTime)],
   });
 }
 
