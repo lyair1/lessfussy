@@ -60,7 +60,7 @@ export function LastFeeding({ feeding, babyId, babyName }: LastFeedingProps) {
       hour: "numeric",
       minute: "2-digit",
     });
-    const feedingTime = feeding.endTime || feeding.startTime;
+    const feedingTime = feeding.startTime;
     const isTodayFeeding = isToday(feedingTime);
 
     if (isActive) {
@@ -99,7 +99,7 @@ export function LastFeeding({ feeding, babyId, babyName }: LastFeedingProps) {
   };
 
   const formatTime = () => {
-    const feedingTime = feeding.endTime || feeding.startTime;
+    const feedingTime = feeding.startTime;
 
     if (isYesterday(feedingTime)) {
       return "yesterday";
