@@ -17,9 +17,21 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatDuration, getRelativeTime } from "@/lib/utils";
 import { toggleFavoriteActivity } from "@/lib/actions/users";
 import { toast } from "sonner";
+import type {
+  Feeding,
+  SleepLog,
+  Diaper,
+  Pumping,
+  Medicine,
+  Temperature,
+  Activity as ActivityType,
+  GrowthLog,
+  PottyLog,
+  Solid,
+} from "@/lib/db/schema";
 
 const trackingTypes = [
   {
@@ -94,12 +106,30 @@ const trackingTypes = [
   },
 ];
 
+interface LastTrackingData {
+  feeding: Feeding | undefined;
+  sleep: SleepLog | undefined;
+  diaper: Diaper | undefined;
+  pumping: Pumping | undefined;
+  medicine: Medicine | undefined;
+  temperature: Temperature | undefined;
+  activity: ActivityType | undefined;
+  growth: GrowthLog | undefined;
+  potty: PottyLog | undefined;
+  solids: Solid | undefined;
+}
+
 interface TrackingGridProps {
   babyId: string;
   initialFavorites: string[];
+  lastTrackingData?: LastTrackingData;
 }
 
-export function TrackingGrid({ babyId, initialFavorites }: TrackingGridProps) {
+export function TrackingGrid({
+  babyId,
+  initialFavorites,
+  lastTrackingData,
+}: TrackingGridProps) {
   const [favorites, setFavorites] = useState<string[]>(initialFavorites);
   const [showMore, setShowMore] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -151,44 +181,156 @@ export function TrackingGrid({ babyId, initialFavorites }: TrackingGridProps) {
   const renderTrackingCard = (
     type: (typeof trackingTypes)[0],
     isFavorite: boolean
-  ) => (
-    <div key={type.id} className="relative group">
-      <Link
-        href={`/baby/${babyId}/${type.id}`}
-        className={cn(
-          "flex flex-col items-center justify-center p-4 sm:p-6 rounded-2xl transition-all duration-200",
-          "border border-border/50 hover:border-border",
-          "hover:scale-[1.02] active:scale-[0.98]",
-          type.color
-        )}
-      >
-        <type.icon className="h-8 w-8 sm:h-10 sm:w-10 mb-2" />
-        <span className="font-semibold text-sm sm:text-base">{type.label}</span>
-        <span className="text-xs text-muted-foreground mt-1 text-center hidden sm:block">
-          {type.description}
-        </span>
-      </Link>
+  ) => {
+    const lastEntry = lastTrackingData?.[type.id as keyof LastTrackingData];
 
-      {/* Favorite toggle button */}
-      <button
-        onClick={(e) => handleToggleFavorite(e, type.id, type.label)}
-        disabled={isPending}
-        className={cn(
-          "absolute top-2 right-2 p-1.5 rounded-full transition-all duration-200",
-          "opacity-0 group-hover:opacity-100 focus:opacity-100",
-          "hover:scale-110 active:scale-95",
-          isFavorite
-            ? "bg-yellow/20 text-yellow hover:bg-yellow/30"
-            : "bg-background/80 text-muted-foreground hover:text-foreground hover:bg-background"
-        )}
-        aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
-      >
-        <Star
-          className={cn("h-4 w-4", isFavorite && "fill-current")}
-        />
-      </button>
-    </div>
-  );
+    // Calculate duration for feeding and sleep
+    let durationText = "";
+    let lastTimeText = "";
+    let isActive = false;
+
+    if (lastEntry) {
+      // Get the appropriate timestamp field based on the tracking type
+      let timestamp: Date | undefined;
+      switch (type.id) {
+        case "feeding":
+        case "sleep":
+        case "activity":
+        case "pumping":
+          timestamp = (lastEntry as any).startTime;
+          break;
+        case "diaper":
+        case "medicine":
+        case "temperature":
+        case "potty":
+        case "solids":
+          timestamp = (lastEntry as any).time;
+          break;
+        case "growth":
+          timestamp = (lastEntry as any).createdAt;
+          break;
+      }
+
+      if (timestamp) {
+        lastTimeText = getRelativeTime(new Date(timestamp));
+      }
+
+      // Handle active sessions first
+      if (
+        type.id === "feeding" &&
+        !(lastEntry as any).endTime &&
+        (lastEntry as any).type === "nursing"
+      ) {
+        lastTimeText = "Nursing...";
+        isActive = true;
+      } else if (type.id === "pumping" && !(lastEntry as any).endTime) {
+        lastTimeText = "Pumping...";
+        isActive = true;
+      }
+      // Calculate duration for completed feeding and sleep
+      else if (type.id === "feeding" && (lastEntry as any).endTime) {
+        // For nursing sessions, use stored duration if available
+        if ((lastEntry as any).type === "nursing") {
+          const leftDuration = (lastEntry as any).leftDuration || 0;
+          const rightDuration = (lastEntry as any).rightDuration || 0;
+          const totalDuration = leftDuration + rightDuration;
+          if (totalDuration > 0) {
+            durationText = formatDuration(totalDuration);
+          }
+        } else if ((lastEntry as any).type === "bottle") {
+          // For bottle feedings, show amount instead of duration
+          const amount = (lastEntry as any).amount;
+          const unit = (lastEntry as any).amountUnit || "oz";
+          if (amount && amount > 0) {
+            durationText = `${amount}${unit}`;
+          }
+        } else if ((lastEntry as any).startTime && (lastEntry as any).endTime) {
+          // For other completed feedings, calculate duration from start/end times
+          const durationSeconds = Math.floor(
+            (new Date((lastEntry as any).endTime).getTime() -
+              new Date((lastEntry as any).startTime).getTime()) /
+              1000
+          );
+          if (durationSeconds > 0) {
+            durationText = formatDuration(durationSeconds);
+          }
+        }
+      } else if (
+        type.id === "sleep" &&
+        (lastEntry as any).endTime &&
+        (lastEntry as any).startTime
+      ) {
+        const durationSeconds = Math.floor(
+          (new Date((lastEntry as any).endTime).getTime() -
+            new Date((lastEntry as any).startTime).getTime()) /
+            1000
+        );
+        if (durationSeconds > 0) {
+          durationText = formatDuration(durationSeconds);
+        }
+      }
+    }
+
+    return (
+      <div key={type.id} className="relative group">
+        <Link
+          href={`/baby/${babyId}/${type.id}`}
+          className={cn(
+            "flex flex-col items-center justify-center p-4 sm:p-6 rounded-2xl transition-all duration-200",
+            "border border-border/50 hover:border-border",
+            "hover:scale-[1.02] active:scale-[0.98]",
+            type.color
+          )}
+        >
+          <type.icon
+            className={cn(
+              "h-8 w-8 sm:h-10 sm:w-10 mb-2",
+              isActive && "heartbeat"
+            )}
+          />
+          <span className="font-semibold text-sm sm:text-base">
+            {type.label}
+          </span>
+          <div className="w-full mt-1 hidden sm:block">
+            <span className="text-xs text-muted-foreground px-1 block text-center">
+              {type.description}
+            </span>
+          </div>
+
+          {/* Last tracking info */}
+          {lastTimeText && (
+            <div className="w-full mt-2 hidden sm:block">
+              <div className="text-xs text-muted-foreground/80 px-1 text-center">
+                <div>
+                  {lastTimeText.endsWith("...")
+                    ? lastTimeText
+                    : `Last: ${lastTimeText}`}
+                  {durationText && ` (${durationText})`}
+                </div>
+              </div>
+            </div>
+          )}
+        </Link>
+
+        {/* Favorite toggle button */}
+        <button
+          onClick={(e) => handleToggleFavorite(e, type.id, type.label)}
+          disabled={isPending}
+          className={cn(
+            "absolute top-2 right-2 p-1.5 rounded-full transition-all duration-200",
+            "opacity-0 group-hover:opacity-100 focus:opacity-100",
+            "hover:scale-110 active:scale-95",
+            isFavorite
+              ? "bg-yellow/20 text-yellow hover:bg-yellow/30"
+              : "bg-background/80 text-muted-foreground hover:text-foreground hover:bg-background"
+          )}
+          aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
+        >
+          <Star className={cn("h-4 w-4", isFavorite && "fill-current")} />
+        </button>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">

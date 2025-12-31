@@ -115,6 +115,77 @@ export async function getLastFeeding(babyId: string) {
   });
 }
 
+export async function getLastTrackingForAllTypes(babyId: string) {
+  await checkBabyAccess(babyId);
+
+  const [
+    lastFeeding,
+    lastSleep,
+    lastDiaper,
+    lastPumping,
+    lastMedicine,
+    lastTemperature,
+    lastActivity,
+    lastGrowth,
+    lastPotty,
+    lastSolids,
+  ] = await Promise.all([
+    db.query.feedings.findFirst({
+      where: eq(feedings.babyId, babyId),
+      orderBy: [desc(feedings.startTime)],
+    }),
+    db.query.sleepLogs.findFirst({
+      where: eq(sleepLogs.babyId, babyId),
+      orderBy: [desc(sleepLogs.startTime)],
+    }),
+    db.query.diapers.findFirst({
+      where: eq(diapers.babyId, babyId),
+      orderBy: [desc(diapers.time)],
+    }),
+    db.query.pumpings.findFirst({
+      where: eq(pumpings.babyId, babyId),
+      orderBy: [desc(pumpings.startTime)],
+    }),
+    db.query.medicines.findFirst({
+      where: eq(medicines.babyId, babyId),
+      orderBy: [desc(medicines.time)],
+    }),
+    db.query.temperatures.findFirst({
+      where: eq(temperatures.babyId, babyId),
+      orderBy: [desc(temperatures.time)],
+    }),
+    db.query.activities.findFirst({
+      where: eq(activities.babyId, babyId),
+      orderBy: [desc(activities.startTime)],
+    }),
+    db.query.growthLogs.findFirst({
+      where: eq(growthLogs.babyId, babyId),
+      orderBy: [desc(growthLogs.createdAt)],
+    }),
+    db.query.pottyLogs.findFirst({
+      where: eq(pottyLogs.babyId, babyId),
+      orderBy: [desc(pottyLogs.time)],
+    }),
+    db.query.solids.findFirst({
+      where: eq(solids.babyId, babyId),
+      orderBy: [desc(solids.time)],
+    }),
+  ]);
+
+  return {
+    feeding: lastFeeding,
+    sleep: lastSleep,
+    diaper: lastDiaper,
+    pumping: lastPumping,
+    medicine: lastMedicine,
+    temperature: lastTemperature,
+    activity: lastActivity,
+    growth: lastGrowth,
+    potty: lastPotty,
+    solids: lastSolids,
+  };
+}
+
 export async function getActiveNursing(babyId: string) {
   await checkBabyAccess(babyId);
 
