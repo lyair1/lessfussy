@@ -1,10 +1,24 @@
 "use server";
 
 import { auth } from "@clerk/nextjs/server";
-import { db, feedings, sleepLogs, diapers, pottyLogs, pumpings, medicines, temperatures, activities, growthLogs, solids } from "@/lib/db";
+import {
+  db,
+  feedings,
+  sleepLogs,
+  diapers,
+  pottyLogs,
+  pumpings,
+  medicines,
+  temperatures,
+  activities,
+  growthLogs,
+  solids,
+} from "@/lib/db";
 import { getBaby } from "./babies";
 import { revalidatePath } from "next/cache";
-import { eq, desc, and, gte, lte, isNull, isNotNull } from "drizzle-orm";
+import { eq, desc, and, gte, lte, isNull } from "drizzle-orm";
+import { checkActivityConflicts } from "@/lib/conflicts";
+import { type ActivityType } from "@/lib/utils";
 import type {
   NewFeeding,
   NewSleepLog,
@@ -24,10 +38,67 @@ async function checkBabyAccess(babyId: string) {
   return baby;
 }
 
+// Helper to check for activity conflicts
+async function checkAndThrowConflicts(
+  babyId: string,
+  activityType: ActivityType,
+  startTime?: Date,
+  endTime?: Date,
+  options: { allowOverride?: boolean; babyName?: string } = {}
+) {
+  const { allowOverride = false, babyName } = options;
+  const conflictResult = await checkActivityConflicts(
+    babyId,
+    activityType,
+    startTime,
+    endTime,
+    babyName
+  );
+
+  if (conflictResult.hasConflicts) {
+    // If overrides are not allowed, throw for all conflicts
+    if (!allowOverride) {
+      throw new Error("Activity conflicts detected");
+    }
+
+    // If overrides are allowed, only throw for active conflicts
+    const hasActiveConflicts = conflictResult.conflicts.some(
+      (c) => c.type === "active_conflict"
+    );
+    if (hasActiveConflicts) {
+      throw new Error("Active activity conflicts detected");
+    }
+  }
+}
+
 // ============ FEEDING ============
 
-export async function createFeeding(data: Omit<NewFeeding, "id" | "createdAt" | "updatedAt">) {
-  await checkBabyAccess(data.babyId);
+export async function createFeeding(
+  data: Omit<NewFeeding, "id" | "createdAt" | "updatedAt">,
+  options: { allowOverride?: boolean } = {}
+) {
+  const baby = await checkBabyAccess(data.babyId);
+
+  // Check for conflicts - bottle feedings are completed immediately, nursing can be ongoing
+  if (data.type === "bottle" || data.endTime) {
+    // Completed feeding - check conflicts for the time period
+    await checkAndThrowConflicts(
+      data.babyId,
+      "feeding",
+      data.startTime,
+      data.endTime || undefined,
+      { ...options, babyName: baby.name }
+    );
+  } else if (data.type === "nursing") {
+    // Starting a nursing session - check for active conflicts only
+    await checkAndThrowConflicts(
+      data.babyId,
+      "feeding",
+      data.startTime,
+      data.endTime || undefined,
+      { ...options, babyName: baby.name }
+    );
+  }
 
   const [result] = await db.insert(feedings).values(data).returning();
   revalidatePath("/");
@@ -57,23 +128,21 @@ export async function getActiveNursing(babyId: string) {
   });
 }
 
-export async function startOrUpdateActiveNursing(data: {
-  babyId: string;
-  startTime: Date;
-  leftDuration: number; // seconds on left at this moment
-  rightDuration: number; // seconds on right at this moment
-  pausedDuration: number; // seconds paused at this moment
-  currentStatus: "left" | "right" | "paused";
-  notes?: string;
-}) {
-  await checkBabyAccess(data.babyId);
+export async function startOrUpdateActiveNursing(
+  data: {
+    babyId: string;
+    startTime: Date;
+    leftDuration: number; // seconds on left at this moment
+    rightDuration: number; // seconds on right at this moment
+    pausedDuration: number; // seconds paused at this moment
+    currentStatus: "left" | "right" | "paused";
+    notes?: string;
+  },
+  options: { allowOverride?: boolean } = {}
+) {
+  const baby = await checkBabyAccess(data.babyId);
 
   const now = new Date();
-
-  // Determine side based on which breasts have been used
-  let side: "left" | "right" | "both" = "both";
-  if (data.leftDuration > 0 && data.rightDuration === 0) side = "left";
-  else if (data.rightDuration > 0 && data.leftDuration === 0) side = "right";
 
   // Check if there's already an active nursing session
   const existing = await db.query.feedings.findFirst({
@@ -83,6 +152,22 @@ export async function startOrUpdateActiveNursing(data: {
       isNull(feedings.endTime)
     ),
   });
+
+  // Only check for conflicts when starting a new session (not updating existing)
+  if (!existing) {
+    await checkAndThrowConflicts(
+      data.babyId,
+      "feeding",
+      data.startTime,
+      undefined,
+      { ...options, babyName: baby.name }
+    );
+  }
+
+  // Determine side based on which breasts have been used
+  let side: "left" | "right" | "both" = "both";
+  if (data.leftDuration > 0 && data.rightDuration === 0) side = "left";
+  else if (data.rightDuration > 0 && data.leftDuration === 0) side = "right";
 
   if (existing) {
     // Update existing session
@@ -143,14 +228,17 @@ export async function cancelActiveNursing(babyId: string) {
   revalidatePath("/");
 }
 
-export async function completeActiveNursing(babyId: string, data: {
-  startTime: Date;
-  endTime: Date;
-  leftDuration: number; // final seconds on left
-  rightDuration: number; // final seconds on right
-  pausedDuration: number; // final seconds paused
-  notes?: string;
-}) {
+export async function completeActiveNursing(
+  babyId: string,
+  data: {
+    startTime: Date;
+    endTime: Date;
+    leftDuration: number; // final seconds on left
+    rightDuration: number; // final seconds on right
+    pausedDuration: number; // final seconds paused
+    notes?: string;
+  }
+) {
   await checkBabyAccess(babyId);
 
   // Determine side based on which breasts were used
@@ -185,7 +273,7 @@ export async function completeActiveNursing(babyId: string, data: {
       })
       .where(eq(feedings.id, existing.id))
       .returning();
-    
+
     revalidatePath("/");
     revalidatePath("/history");
     return result;
@@ -207,7 +295,7 @@ export async function completeActiveNursing(babyId: string, data: {
         notes: data.notes,
       })
       .returning();
-    
+
     revalidatePath("/");
     revalidatePath("/history");
     return result;
@@ -241,8 +329,20 @@ export async function deleteFeeding(id: string, babyId: string) {
 
 // ============ SLEEP ============
 
-export async function createSleepLog(data: Omit<NewSleepLog, "id" | "createdAt" | "updatedAt">) {
-  await checkBabyAccess(data.babyId);
+export async function createSleepLog(
+  data: Omit<NewSleepLog, "id" | "createdAt" | "updatedAt">,
+  options: { allowOverride?: boolean } = {}
+) {
+  const baby = await checkBabyAccess(data.babyId);
+
+  // Check for conflicts - if endTime is provided, it's a completed sleep session
+  await checkAndThrowConflicts(
+    data.babyId,
+    "sleep",
+    data.startTime,
+    data.endTime || undefined,
+    { ...options, babyName: baby.name }
+  );
 
   const [result] = await db.insert(sleepLogs).values(data).returning();
   revalidatePath("/");
@@ -304,7 +404,12 @@ export async function deleteDiaper(id: string, babyId: string) {
 
 // ============ POTTY ============
 
-export async function createPottyLog(data: { babyId: string; time: Date; type: "sat_but_dry" | "success" | "accident"; notes?: string }) {
+export async function createPottyLog(data: {
+  babyId: string;
+  time: Date;
+  type: "sat_but_dry" | "success" | "accident";
+  notes?: string;
+}) {
   await checkBabyAccess(data.babyId);
 
   const [result] = await db.insert(pottyLogs).values(data).returning();
@@ -322,8 +427,20 @@ export async function deletePottyLog(id: string, babyId: string) {
 
 // ============ PUMPING ============
 
-export async function createPumping(data: Omit<NewPumping, "id" | "createdAt">) {
-  await checkBabyAccess(data.babyId);
+export async function createPumping(
+  data: Omit<NewPumping, "id" | "createdAt">,
+  options: { allowOverride?: boolean } = {}
+) {
+  const baby = await checkBabyAccess(data.babyId);
+
+  // Check for conflicts - if endTime is provided, it's a completed pumping session
+  await checkAndThrowConflicts(
+    data.babyId,
+    "pumping",
+    data.startTime,
+    data.endTime || undefined,
+    { ...options, babyName: baby.name }
+  );
 
   const [result] = await db.insert(pumpings).values(data).returning();
   revalidatePath("/");
@@ -340,19 +457,22 @@ export async function getActivePumping(babyId: string) {
   });
 }
 
-export async function startOrUpdateActivePumping(data: {
-  babyId: string;
-  startTime: Date;
-  duration: number; // seconds accumulated at this moment
-  currentStatus: "running" | "paused";
-  leftAmount?: number;
-  rightAmount?: number;
-  totalAmount?: number;
-  amountUnit?: "oz" | "ml";
-  amountMode?: "total" | "left_right";
-  notes?: string;
-}) {
-  await checkBabyAccess(data.babyId);
+export async function startOrUpdateActivePumping(
+  data: {
+    babyId: string;
+    startTime: Date;
+    duration: number; // seconds accumulated at this moment
+    currentStatus: "running" | "paused";
+    leftAmount?: number;
+    rightAmount?: number;
+    totalAmount?: number;
+    amountUnit?: "oz" | "ml";
+    amountMode?: "total" | "left_right";
+    notes?: string;
+  },
+  options: { allowOverride?: boolean } = {}
+) {
+  const baby = await checkBabyAccess(data.babyId);
 
   const now = new Date();
 
@@ -360,6 +480,17 @@ export async function startOrUpdateActivePumping(data: {
   const existing = await db.query.pumpings.findFirst({
     where: and(eq(pumpings.babyId, data.babyId), isNull(pumpings.endTime)),
   });
+
+  // Only check for conflicts when starting a new session (not updating existing)
+  if (!existing) {
+    await checkAndThrowConflicts(
+      data.babyId,
+      "pumping",
+      data.startTime,
+      undefined,
+      { ...options, babyName: baby.name }
+    );
+  }
 
   if (existing) {
     // Update existing session
@@ -541,14 +672,34 @@ export async function deleteTemperature(id: string, babyId: string) {
 
 // ============ ACTIVITY ============
 
-export async function createActivity(data: {
-  babyId: string;
-  startTime: Date;
-  endTime?: Date;
-  type: "bath" | "tummy_time" | "story_time" | "screen_time" | "skin_to_skin" | "play" | "outdoor" | "other";
-  notes?: string;
-}) {
-  await checkBabyAccess(data.babyId);
+export async function createActivity(
+  data: {
+    babyId: string;
+    startTime: Date;
+    endTime?: Date;
+    type:
+      | "bath"
+      | "tummy_time"
+      | "story_time"
+      | "screen_time"
+      | "skin_to_skin"
+      | "play"
+      | "outdoor"
+      | "other";
+    notes?: string;
+  },
+  options: { allowOverride?: boolean } = {}
+) {
+  const baby = await checkBabyAccess(data.babyId);
+
+  // Check for conflicts
+  await checkAndThrowConflicts(
+    data.babyId,
+    "activity",
+    data.startTime,
+    data.endTime,
+    { ...options, babyName: baby.name }
+  );
 
   const [result] = await db.insert(activities).values(data).returning();
   revalidatePath("/");
@@ -618,6 +769,23 @@ export async function deleteSolid(id: string, babyId: string) {
 }
 
 // ============ HISTORY ============
+
+// Get conflicts for a proposed activity
+export async function getActivityConflicts(
+  babyId: string,
+  activityType: ActivityType,
+  startTime?: Date,
+  endTime?: Date
+) {
+  const baby = await checkBabyAccess(babyId);
+  return await checkActivityConflicts(
+    babyId,
+    activityType,
+    startTime,
+    endTime,
+    baby.name
+  );
+}
 
 export async function getTimelineEntries(babyId: string, date: Date) {
   await checkBabyAccess(babyId);
@@ -724,18 +892,40 @@ export async function getTimelineEntries(babyId: string, date: Date) {
 
   // Combine and sort all entries
   const allEntries = [
-    ...feedingsData.map((f) => ({ ...f, entryType: "feeding" as const, time: f.startTime })),
-    ...sleepData.map((s) => ({ ...s, entryType: "sleep" as const, time: s.startTime })),
+    ...feedingsData.map((f) => ({
+      ...f,
+      entryType: "feeding" as const,
+      time: f.startTime,
+    })),
+    ...sleepData.map((s) => ({
+      ...s,
+      entryType: "sleep" as const,
+      time: s.startTime,
+    })),
     ...diapersData.map((d) => ({ ...d, entryType: "diaper" as const })),
     ...pottyData.map((p) => ({ ...p, entryType: "potty" as const })),
-    ...pumpingsData.map((p) => ({ ...p, entryType: "pumping" as const, time: p.startTime })),
+    ...pumpingsData.map((p) => ({
+      ...p,
+      entryType: "pumping" as const,
+      time: p.startTime,
+    })),
     ...medicinesData.map((m) => ({ ...m, entryType: "medicine" as const })),
-    ...temperaturesData.map((t) => ({ ...t, entryType: "temperature" as const })),
-    ...activitiesData.map((a) => ({ ...a, entryType: "activity" as const, time: a.startTime })),
-    ...growthData.map((g) => ({ ...g, entryType: "growth" as const, time: new Date(g.date) })),
+    ...temperaturesData.map((t) => ({
+      ...t,
+      entryType: "temperature" as const,
+    })),
+    ...activitiesData.map((a) => ({
+      ...a,
+      entryType: "activity" as const,
+      time: a.startTime,
+    })),
+    ...growthData.map((g) => ({
+      ...g,
+      entryType: "growth" as const,
+      time: new Date(g.date),
+    })),
     ...solidsData.map((s) => ({ ...s, entryType: "solids" as const })),
   ].sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
 
   return allEntries;
 }
-

@@ -22,11 +22,13 @@ import {
   DateTimeRow,
   NotesInput,
 } from "@/components/tracking/shared";
+import { ConflictDialog } from "@/components/tracking/conflict-dialog";
 import {
   getActivePumping,
   startOrUpdateActivePumping,
   cancelActivePumping,
   completeActivePumping,
+  getActivityConflicts,
 } from "@/lib/actions/tracking";
 import { cn } from "@/lib/utils";
 
@@ -48,6 +50,11 @@ export default function PumpingPage() {
   const [saving, setSaving] = useState(false);
   const [loadingSession, setLoadingSession] = useState(true);
   const [showDismissConfirm, setShowDismissConfirm] = useState(false);
+
+  // Conflict handling
+  const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
+  const [pendingConflicts, setPendingConflicts] = useState<any[]>([]);
+  const [pendingAction, setPendingAction] = useState<(() => Promise<void>) | null>(null);
 
   // Timer state
   const [timerActive, setTimerActive] = useState(false); // Whether a timer session is active
@@ -179,37 +186,90 @@ export default function PumpingPage() {
       .padStart(2, "0")}`;
   };
 
+  // Helper to check conflicts and show dialog if needed
+  const checkConflictsAndProceed = async (
+    activityType: "pumping",
+    action: () => Promise<void>,
+    startTime?: Date,
+    endTime?: Date
+  ) => {
+    try {
+      const conflictResult = await getActivityConflicts(babyId, activityType, startTime, endTime);
+
+      if (conflictResult.hasConflicts) {
+        setPendingConflicts(conflictResult.conflicts);
+        setPendingAction(() => action);
+        setConflictDialogOpen(true);
+        return;
+      }
+
+      // No conflicts, proceed with action
+      await action();
+    } catch (error) {
+      console.error("Failed to check conflicts:", error);
+      toast.error("Failed to check for conflicts");
+    }
+  };
+
+  // Handle conflict resolution
+  const handleConflictConfirm = async () => {
+    if (!pendingAction) return;
+
+    try {
+      // Allow override for logical conflicts
+      await pendingAction();
+    } catch (error) {
+      console.error("Failed to execute pending action:", error);
+      toast.error("Failed to save");
+    } finally {
+      setPendingAction(null);
+      setPendingConflicts([]);
+    }
+  };
+
+  const handleConflictCancel = () => {
+    setPendingAction(null);
+    setPendingConflicts([]);
+  };
+
   const handleStartTimer = async () => {
     const now = new Date();
-    setStartTime(now);
-    setTimerActive(true);
-    setIsTimerRunning(true);
-    setManualDuration(null);
-    setAccumulatedSeconds(0);
-    setDisplaySeconds(0);
 
-    // Immediately persist to DB
-    try {
-      const result = await startOrUpdateActivePumping({
-        babyId,
-        startTime: now,
-        duration: 0,
-        currentStatus: "running",
-        leftAmount: amountMode === "left_right" ? leftAmount : undefined,
-        rightAmount: amountMode === "left_right" ? rightAmount : undefined,
-        totalAmount:
-          amountMode === "total" ? totalAmount : leftAmount + rightAmount,
-        amountUnit,
-        notes: notes || undefined,
-      });
-      setActivePumpingId(result.id);
-      toast.success("Pumping session started");
-    } catch (error) {
-      toast.error("Failed to start pumping session");
-      console.error(error);
-      setTimerActive(false);
-      setIsTimerRunning(false);
-    }
+    await checkConflictsAndProceed(
+      "pumping",
+      async () => {
+        setStartTime(now);
+        setTimerActive(true);
+        setIsTimerRunning(true);
+        setManualDuration(null);
+        setAccumulatedSeconds(0);
+        setDisplaySeconds(0);
+
+        // Immediately persist to DB
+        try {
+          const result = await startOrUpdateActivePumping({
+            babyId,
+            startTime: now,
+            duration: 0,
+            currentStatus: "running",
+            leftAmount: amountMode === "left_right" ? leftAmount : undefined,
+            rightAmount: amountMode === "left_right" ? rightAmount : undefined,
+            totalAmount:
+              amountMode === "total" ? totalAmount : leftAmount + rightAmount,
+            amountUnit,
+            notes: notes || undefined,
+          }, { allowOverride: true });
+          setActivePumpingId(result.id);
+          toast.success("Pumping session started");
+        } catch (error) {
+          toast.error("Failed to start pumping session");
+          console.error(error);
+          setTimerActive(false);
+          setIsTimerRunning(false);
+        }
+      },
+      now
+    );
   };
 
   const handlePauseTimer = () => {
@@ -627,6 +687,22 @@ export default function PumpingPage() {
           </Dialog>
         </TrackingContent>
       )}
+
+      {/* Conflict Dialog */}
+      <ConflictDialog
+        open={conflictDialogOpen}
+        onOpenChange={setConflictDialogOpen}
+        conflicts={pendingConflicts}
+        activityType="pumping"
+        onConfirm={handleConflictConfirm}
+        onCancel={handleConflictCancel}
+        onGoToActivity={(activityType) => {
+          if (activityType === "feeding") router.push(`/baby/${babyId}/feeding`);
+          if (activityType === "sleep") router.push(`/baby/${babyId}/sleep`);
+          // For pumping conflicts, stay on current page
+        }}
+        loading={saving}
+      />
     </TrackingContainer>
   );
 }

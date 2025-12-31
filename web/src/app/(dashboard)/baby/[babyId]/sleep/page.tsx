@@ -31,11 +31,16 @@ import {
   TrackingHeader,
   DateTimeRow,
 } from "@/components/tracking/shared";
+import { ConflictDialog } from "@/components/tracking/conflict-dialog";
 import {
   createSleepLog,
   getActiveSleep,
   updateSleepLog,
+  getActivityConflicts,
+  getActiveNursing,
+  completeActiveNursing,
 } from "@/lib/actions/tracking";
+import { Conflict } from "@/lib/utils";
 
 type Mood = "upset" | "content";
 type FallAsleepTime = "under_10_min" | "10_to_20_min" | "over_20_min";
@@ -85,6 +90,11 @@ export default function SleepPage() {
 
   const [saving, setSaving] = useState(false);
   const [loadingSession, setLoadingSession] = useState(true);
+
+  // Conflict handling
+  const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
+  const [pendingConflicts, setPendingConflicts] = useState<Conflict[]>([]);
+  const [pendingAction, setPendingAction] = useState<(() => Promise<void>) | null>(null);
 
   // Check for active sleep on mount
   useEffect(() => {
@@ -144,25 +154,32 @@ export default function SleepPage() {
     }
 
     const now = new Date();
-    setStartTime(now);
-    setIsTimerRunning(true);
 
-    try {
-      const result = await createSleepLog({
-        babyId,
-        startTime: now,
-        startMood: startMood || undefined,
-        fallAsleepTime: fallAsleepTime || undefined,
-        sleepMethod: sleepMethod || undefined,
-      });
-      setActiveSleepId(result.id);
-      toast.success("Sleep tracking started");
-    } catch (error) {
-      toast.error("Failed to start sleep tracking");
-      console.error(error);
-      setIsTimerRunning(false);
-      setStartTime(null);
-    }
+    await checkConflictsAndProceed(
+      "sleep",
+      async () => {
+        setStartTime(now);
+        setIsTimerRunning(true);
+
+        try {
+          const result = await createSleepLog({
+            babyId,
+            startTime: now,
+            startMood: startMood || undefined,
+            fallAsleepTime: fallAsleepTime || undefined,
+            sleepMethod: sleepMethod || undefined,
+          }, { allowOverride: true });
+          setActiveSleepId(result.id);
+          toast.success("Sleep tracking started");
+        } catch (error) {
+          toast.error("Failed to start sleep tracking");
+          console.error(error);
+          setIsTimerRunning(false);
+          setStartTime(null);
+        }
+      },
+      now
+    );
   };
 
   const handleStop = async () => {
@@ -210,34 +227,109 @@ export default function SleepPage() {
       }
     } else {
       // No active session - create one and start the timer
-      setStartTime(newStartTime);
-      const newElapsed = Math.floor(
-        (Date.now() - newStartTime.getTime()) / 1000
-      );
-      setElapsedSeconds(Math.max(0, newElapsed));
-      setIsTimerRunning(true);
+      await checkConflictsAndProceed(
+        "sleep",
+        async () => {
+          setStartTime(newStartTime);
+          const newElapsed = Math.floor(
+            (Date.now() - newStartTime.getTime()) / 1000
+          );
+          setElapsedSeconds(Math.max(0, newElapsed));
+          setIsTimerRunning(true);
 
-      try {
-        const result = await createSleepLog({
-          babyId,
-          startTime: newStartTime,
-          startMood: startMood || undefined,
-          fallAsleepTime: fallAsleepTime || undefined,
-          sleepMethod: sleepMethod || undefined,
-        });
-        setActiveSleepId(result.id);
-        toast.success("Sleep tracking started");
-      } catch (error) {
-        toast.error("Failed to start sleep tracking");
-        console.error(error);
-        setIsTimerRunning(false);
-        setStartTime(null);
-        setElapsedSeconds(0);
-      }
+          try {
+            const result = await createSleepLog({
+              babyId,
+              startTime: newStartTime,
+              startMood: startMood || undefined,
+              fallAsleepTime: fallAsleepTime || undefined,
+              sleepMethod: sleepMethod || undefined,
+            }, { allowOverride: true });
+            setActiveSleepId(result.id);
+            toast.success("Sleep tracking started");
+          } catch (error) {
+            toast.error("Failed to start sleep tracking");
+            console.error(error);
+            setIsTimerRunning(false);
+            setStartTime(null);
+            setElapsedSeconds(0);
+          }
+        },
+        newStartTime
+      );
     }
   };
 
   const duration = formatDuration(elapsedSeconds);
+
+  // Helper to check conflicts and show dialog if needed
+  const checkConflictsAndProceed = async (
+    activityType: "sleep",
+    action: () => Promise<void>,
+    startTime?: Date,
+    endTime?: Date
+  ) => {
+    try {
+      const conflictResult = await getActivityConflicts(babyId, activityType, startTime, endTime);
+
+      if (conflictResult.hasConflicts) {
+        setPendingConflicts(conflictResult.conflicts);
+        setPendingAction(() => action);
+        setConflictDialogOpen(true);
+        return;
+      }
+
+      // No conflicts, proceed with action
+      await action();
+    } catch (error) {
+      console.error("Failed to check conflicts:", error);
+      toast.error("Failed to check for conflicts");
+    }
+  };
+
+  // Handle conflict resolution
+  const handleConflictConfirm = async () => {
+    if (!pendingAction) return;
+
+    try {
+      // Special case: sleep conflicting with feeding -> stop feeding first, then start sleep
+      const hasFeedingConflict = pendingConflicts.some(
+        conflict => conflict.type === "active_conflict" &&
+        conflict.conflictingActivities.some(activity => activity.type === "feeding")
+      );
+
+      if (hasFeedingConflict) {
+        // Stop the active feeding session
+        const activeFeeding = await getActiveNursing(babyId);
+        if (activeFeeding) {
+          await completeActiveNursing(babyId, {
+            startTime: activeFeeding.startTime,
+            endTime: new Date(),
+            leftDuration: activeFeeding.leftDuration || 0,
+            rightDuration: activeFeeding.rightDuration || 0,
+            pausedDuration: activeFeeding.pausedDuration || 0,
+            notes: activeFeeding.notes ? `${activeFeeding.notes} (Auto-completed when starting sleep)` : "Auto-completed when starting sleep session"
+          });
+          toast.success("Nursing session completed");
+        }
+      }
+
+      // Now proceed with the original action (starting sleep)
+      await pendingAction();
+    } catch (error) {
+      console.error("Failed to execute pending action:", error);
+      toast.error(`Failed to save: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setPendingAction(null);
+      setPendingConflicts([]);
+      setConflictDialogOpen(false);
+    }
+  };
+
+  const handleConflictCancel = () => {
+    setPendingAction(null);
+    setPendingConflicts([]);
+  };
 
   return (
     <TrackingContainer>
@@ -433,6 +525,22 @@ export default function SleepPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Conflict Dialog */}
+      <ConflictDialog
+        open={conflictDialogOpen}
+        onOpenChange={setConflictDialogOpen}
+        conflicts={pendingConflicts}
+        activityType="sleep"
+        onConfirm={handleConflictConfirm}
+        onCancel={handleConflictCancel}
+        onGoToActivity={(activityType) => {
+          if (activityType === "feeding") router.push(`/baby/${babyId}/feeding`);
+          if (activityType === "pumping") router.push(`/baby/${babyId}/pumping`);
+          // For sleep conflicts, stay on current page
+        }}
+        loading={saving}
+      />
     </TrackingContainer>
   );
 }

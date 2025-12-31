@@ -23,6 +23,7 @@ import {
   NotesInput,
   SaveButton,
 } from "@/components/tracking/shared";
+import { ConflictDialog } from "@/components/tracking/conflict-dialog";
 import {
   createFeeding,
   getLastFeeding,
@@ -30,8 +31,11 @@ import {
   startOrUpdateActiveNursing,
   cancelActiveNursing,
   completeActiveNursing,
+  getActivityConflicts,
+  getActiveSleep,
+  updateSleepLog,
 } from "@/lib/actions/tracking";
-import { cn } from "@/lib/utils";
+import { cn, Conflict } from "@/lib/utils";
 
 type FeedingTab = "nursing" | "bottle";
 type NursingSide = "left" | "right";
@@ -66,6 +70,11 @@ export default function FeedingPage() {
   const [saving, setSaving] = useState(false);
   const [loadingSession, setLoadingSession] = useState(true);
   const [showDismissConfirm, setShowDismissConfirm] = useState(false);
+
+  // Conflict handling
+  const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
+  const [pendingConflicts, setPendingConflicts] = useState<Conflict[]>([]);
+  const [pendingAction, setPendingAction] = useState<(() => Promise<void>) | null>(null);
 
   // Current status for persistence: which state is the timer in?
   // "left" = timer running on left, "right" = timer running on right, "paused" = timer stopped
@@ -243,6 +252,71 @@ export default function FeedingPage() {
       .padStart(2, "0")}`;
   };
 
+  // Helper to check conflicts and show dialog if needed
+  const checkConflictsAndProceed = async (
+    activityType: "feeding",
+    action: () => Promise<void>,
+    startTime?: Date,
+    endTime?: Date
+  ) => {
+    try {
+      const conflictResult = await getActivityConflicts(babyId, activityType, startTime, endTime);
+
+      if (conflictResult.hasConflicts) {
+        setPendingConflicts(conflictResult.conflicts);
+        setPendingAction(() => action);
+        setConflictDialogOpen(true);
+        return;
+      }
+
+      // No conflicts, proceed with action
+      await action();
+    } catch (error) {
+      console.error("Failed to check conflicts:", error);
+      toast.error("Failed to check for conflicts");
+    }
+  };
+
+  // Handle conflict resolution
+  const handleConflictConfirm = async () => {
+    if (!pendingAction) return;
+
+    try {
+      // Special case: feeding conflicting with sleep -> stop sleep first, then start feeding
+      const hasSleepConflict = pendingConflicts.some(
+        conflict => conflict.type === "active_conflict" &&
+        conflict.conflictingActivities.some(activity => activity.type === "sleep")
+      );
+
+      if (hasSleepConflict) {
+        // Stop the active sleep session
+        const activeSleep = await getActiveSleep(babyId);
+        if (activeSleep) {
+          await updateSleepLog(activeSleep.id, babyId, {
+            endTime: new Date(),
+            notes: activeSleep.notes ? `${activeSleep.notes} (Auto-completed when starting feeding)` : "Auto-completed when starting feeding"
+          });
+          toast.success("Sleep session completed");
+        }
+      }
+
+      // Now proceed with the original action (starting feeding)
+      await pendingAction();
+    } catch (error) {
+      console.error("Failed to execute pending action:", error);
+      toast.error(`Failed to save: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setPendingAction(null);
+      setPendingConflicts([]);
+      setConflictDialogOpen(false);
+    }
+  };
+
+  const handleConflictCancel = () => {
+    setPendingAction(null);
+    setPendingConflicts([]);
+  };
+
   const handleSidePress = async (side: NursingSide) => {
     if (activeSide === side && isTimerRunning) {
       // Pause current side
@@ -254,24 +328,29 @@ export default function FeedingPage() {
       // Switch to new side or start
       const startTime = nursingStartTime || new Date();
       if (!nursingStartTime) {
-        setNursingStartTime(startTime);
-        // Immediately persist to DB when starting
-        try {
-          await startOrUpdateActiveNursing({
-            babyId,
-            startTime,
-            leftDuration: 0,
-            rightDuration: 0,
-            pausedDuration: 0,
-            currentStatus: side,
-            notes: notes || undefined,
-          });
-        } catch (error) {
-          console.error("Failed to start nursing session:", error);
-        }
+        // Check for conflicts before starting new session
+        await checkConflictsAndProceed(
+          "feeding",
+          async () => {
+            setNursingStartTime(startTime);
+            // Immediately persist to DB when starting
+            await startOrUpdateActiveNursing({
+              babyId,
+              startTime,
+              leftDuration: 0,
+              rightDuration: 0,
+              pausedDuration: 0,
+              currentStatus: side,
+              notes: notes || undefined,
+            }, { allowOverride: true });
+          },
+          startTime
+        );
+      } else {
+        // Just switch sides - no conflict checking needed for updates
+        setActiveSide(side);
+        setIsTimerRunning(true);
       }
-      setActiveSide(side);
-      setIsTimerRunning(true);
     }
   };
 
@@ -340,26 +419,36 @@ export default function FeedingPage() {
       return;
     }
 
-    setSaving(true);
-    try {
-      // Complete the active nursing session (sets endTime, clears lastPersistedAt & currentStatus)
-      await completeActiveNursing(babyId, {
-        startTime: nursingStartTime || new Date(),
-        endTime: new Date(),
-        leftDuration,
-        rightDuration,
-        pausedDuration,
-        notes: notes || undefined,
-      });
+    const startTime = nursingStartTime || new Date();
+    const endTime = new Date();
 
-      toast.success("Nursing session saved!");
-      router.push(`/baby/${babyId}`);
-    } catch (error) {
-      toast.error("Failed to save");
-      console.error(error);
-    } finally {
-      setSaving(false);
-    }
+    await checkConflictsAndProceed(
+      "feeding",
+      async () => {
+        setSaving(true);
+        try {
+          // Complete the active nursing session (sets endTime, clears lastPersistedAt & currentStatus)
+          await completeActiveNursing(babyId, {
+            startTime,
+            endTime,
+            leftDuration,
+            rightDuration,
+            pausedDuration,
+            notes: notes || undefined,
+          });
+
+          toast.success("Nursing session saved!");
+          router.push(`/baby/${babyId}`);
+        } catch (error) {
+          toast.error("Failed to save");
+          console.error(error);
+        } finally {
+          setSaving(false);
+        }
+      },
+      startTime,
+      endTime
+    );
   };
 
   const handleSaveBottle = async () => {
@@ -368,27 +457,34 @@ export default function FeedingPage() {
       return;
     }
 
-    setSaving(true);
-    try {
-      await createFeeding({
-        babyId,
-        type: "bottle",
-        startTime: bottleStartTime,
-        endTime: bottleStartTime, // Bottle feedings are completed immediately
-        bottleContent,
-        amount,
-        amountUnit,
-        notes: notes || undefined,
-      });
+    await checkConflictsAndProceed(
+      "feeding",
+      async () => {
+        setSaving(true);
+        try {
+          await createFeeding({
+            babyId,
+            type: "bottle",
+            startTime: bottleStartTime,
+            endTime: bottleStartTime, // Bottle feedings are completed immediately
+            bottleContent,
+            amount,
+            amountUnit,
+            notes: notes || undefined,
+          }, { allowOverride: true });
 
-      toast.success("Bottle feeding saved!");
-      router.push(`/baby/${babyId}`);
-    } catch (error) {
-      toast.error("Failed to save");
-      console.error(error);
-    } finally {
-      setSaving(false);
-    }
+          toast.success("Bottle feeding saved!");
+          router.push(`/baby/${babyId}`);
+        } catch (error) {
+          toast.error("Failed to save");
+          console.error(error);
+        } finally {
+          setSaving(false);
+        }
+      },
+      bottleStartTime,
+      bottleStartTime
+    );
   };
 
   return (
@@ -664,6 +760,22 @@ export default function FeedingPage() {
           <SaveButton onClick={handleSaveBottle} saving={saving} />
         </TabsContent>
       </Tabs>
+
+      {/* Conflict Dialog */}
+      <ConflictDialog
+        open={conflictDialogOpen}
+        onOpenChange={setConflictDialogOpen}
+        conflicts={pendingConflicts}
+        activityType="feeding"
+        onConfirm={handleConflictConfirm}
+        onCancel={handleConflictCancel}
+        onGoToActivity={(activityType) => {
+          if (activityType === "sleep") router.push(`/baby/${babyId}/sleep`);
+          if (activityType === "pumping") router.push(`/baby/${babyId}/pumping`);
+          // For feeding conflicts, stay on current page
+        }}
+        loading={saving}
+      />
     </TrackingContainer>
   );
 }

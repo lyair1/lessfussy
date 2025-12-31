@@ -70,3 +70,53 @@ export function clampToNow(date: Date): Date {
 export function isInFuture(date: Date): boolean {
   return date > new Date();
 }
+
+export type ActivityType =
+  | "feeding"
+  | "sleep"
+  | "diaper"
+  | "pumping"
+  | "medicine"
+  | "temperature"
+  | "activity"
+  | "growth"
+  | "potty"
+  | "solids";
+
+export interface ActiveActivity {
+  id: string;
+  type: ActivityType;
+  startTime: Date;
+  description: string;
+}
+
+export interface Conflict {
+  type: "active_conflict" | "logical_conflict";
+  message: string;
+  conflictingActivities: ActiveActivity[];
+  canOverride: boolean;
+}
+
+export interface ConflictCheckResult {
+  hasConflicts: boolean;
+  conflicts: Conflict[];
+}
+
+/**
+ * Get a user-friendly description of an activity type
+ */
+export function getActivityDescription(type: ActivityType): string {
+  const descriptions: Record<ActivityType, string> = {
+    feeding: "feeding",
+    sleep: "sleep",
+    diaper: "diaper change",
+    pumping: "pumping",
+    medicine: "medicine",
+    temperature: "temperature check",
+    activity: "activity",
+    growth: "growth measurement",
+    potty: "potty training",
+    solids: "solid food",
+  };
+  return descriptions[type];
+}
