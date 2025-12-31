@@ -4,7 +4,7 @@ import { auth } from "@clerk/nextjs/server";
 import { db, feedings, sleepLogs, diapers, pottyLogs, pumpings, medicines, temperatures, activities, growthLogs, solids } from "@/lib/db";
 import { getBaby } from "./babies";
 import { revalidatePath } from "next/cache";
-import { eq, desc, and, gte, lte, isNull } from "drizzle-orm";
+import { eq, desc, and, gte, lte, isNull, isNotNull } from "drizzle-orm";
 import type {
   NewFeeding,
   NewSleepLog,
@@ -39,8 +39,11 @@ export async function getLastFeeding(babyId: string) {
   await checkBabyAccess(babyId);
 
   return await db.query.feedings.findFirst({
-    where: eq(feedings.babyId, babyId),
-    orderBy: [desc(feedings.startTime)],
+    where: and(
+      eq(feedings.babyId, babyId),
+      isNotNull(feedings.endTime) // Only return completed feedings
+    ),
+    orderBy: [desc(feedings.endTime)],
   });
 }
 

@@ -374,6 +374,7 @@ export default function FeedingPage() {
         babyId,
         type: "bottle",
         startTime: bottleStartTime,
+        endTime: bottleStartTime, // Bottle feedings are completed immediately
         bottleContent,
         amount,
         amountUnit,
