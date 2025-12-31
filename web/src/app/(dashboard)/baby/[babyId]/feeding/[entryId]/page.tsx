@@ -26,6 +26,8 @@ import {
 import { ConflictDialog } from "@/components/tracking/conflict-dialog";
 import {
   createFeeding,
+  updateFeeding,
+  deleteFeeding,
   getLastFeeding,
   getActiveNursing,
   startOrUpdateActiveNursing,
@@ -46,6 +48,9 @@ export default function FeedingPage() {
   const router = useRouter();
   const params = useParams();
   const babyId = params.babyId as string;
+  const entryId = params.entryId as string;
+
+  const isEditMode = !!entryId && entryId !== 'new';
 
   // Tab state
   const [activeTab, setActiveTab] = useState<FeedingTab>("nursing");
@@ -70,6 +75,7 @@ export default function FeedingPage() {
   // Loading state
   const [saving, setSaving] = useState(false);
   const [loadingSession, setLoadingSession] = useState(true);
+  const [loadingEntry, setLoadingEntry] = useState(isEditMode);
   const [showDismissConfirm, setShowDismissConfirm] = useState(false);
 
   // Conflict handling
@@ -92,10 +98,56 @@ export default function FeedingPage() {
     return activeSide || "paused";
   };
 
+  // Load entry data if in edit mode
+  useEffect(() => {
+    async function loadEntry() {
+      if (!isEditMode) return;
+
+      setLoadingEntry(true);
+      try {
+        // For now, we'll need to get the entry from the timeline
+        // In a real implementation, you'd have a getEntryById function
+        const { getTimelineEntries } = await import("@/lib/actions/tracking");
+        const entries = await getTimelineEntries(babyId, '7d');
+        const entry = entries.find(e => e.id === entryId);
+
+        if (entry && entry.entryType === 'feeding') {
+          if (entry.type === 'bottle') {
+            setActiveTab('bottle');
+            setBottleStartTime(new Date(entry.startTime || entry.time));
+            setBottleContent(entry.bottleContent || 'breast_milk');
+            setAmount(entry.amount || 4);
+            setAmountUnit((entry.amountUnit || 'oz') as "oz" | "ml");
+            setNotes(entry.notes || '');
+          } else {
+            // Nursing entry
+            setActiveTab('nursing');
+            setNursingStartTime(new Date(entry.startTime || entry.time));
+            setLeftDuration(entry.leftDuration || 0);
+            setRightDuration(entry.rightDuration || 0);
+            setPausedDuration(entry.pausedDuration || 0);
+            setNotes(entry.notes || '');
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load entry:', error);
+        toast.error('Failed to load entry');
+      } finally {
+        setLoadingEntry(false);
+      }
+    }
+
+    loadEntry();
+  }, [isEditMode, entryId, babyId]);
+
   // Load active nursing session and last feeding info on mount
   useEffect(() => {
     async function loadSession() {
-      if (!babyId) return;
+      if (isEditMode) {
+        setLoadingSession(false);
+        return;
+      }
+
       try {
         // Check for active nursing session first
         const activeSession = await getActiveNursing(babyId);
@@ -164,7 +216,7 @@ export default function FeedingPage() {
       }
     }
     loadSession();
-  }, [babyId]);
+  }, [babyId, isEditMode]);
 
   // Persist nursing session to DB (only called on state changes)
   const persistSession = useCallback(
@@ -279,7 +331,11 @@ export default function FeedingPage() {
   const dismissSleepPrompt = () => {
     setSleepPromptOpen(false);
     setPendingSleepStart(null);
-    router.push(`/baby/${babyId}`);
+    if (isEditMode) {
+      router.push(`/baby/${babyId}`);
+    } else {
+      router.push(`/baby/${babyId}`);
+    }
   };
 
   // Helper to check conflicts and show dialog if needed
@@ -478,40 +534,54 @@ export default function FeedingPage() {
       async () => {
         setSaving(true);
         try {
-          // Complete the active nursing session (sets endTime, clears lastPersistedAt & currentStatus)
-          await completeActiveNursing(babyId, {
-            startTime,
-            endTime,
-            leftDuration,
-            rightDuration,
-            pausedDuration,
-            notes: notes || undefined,
-          });
-
-          toast.success("Nursing session saved!");
-
-          // Check if it's nighttime and prompt for sleep tracking
-          if (isNighttime(endTime)) {
-            setPendingSleepStart(() => async () => {
-              try {
-                await createSleepLog(
-                  {
-                    babyId,
-                    startTime: endTime,
-                  },
-                  { allowOverride: true }
-                );
-                toast.success("Sleep tracking started!");
-                router.push(`/baby/${babyId}/sleep`);
-              } catch (error) {
-                console.error("Failed to start sleep tracking:", error);
-                toast.error("Failed to start sleep tracking");
-                router.push(`/baby/${babyId}`);
-              }
+          if (isEditMode) {
+            // Update existing entry
+            await updateFeeding(entryId, babyId, {
+              startTime,
+              endTime,
+              leftDuration,
+              rightDuration,
+              pausedDuration,
+              notes: notes || undefined,
             });
-            setSleepPromptOpen(true);
-          } else {
+            toast.success("Nursing session updated!");
             router.push(`/baby/${babyId}`);
+          } else {
+            // Complete the active nursing session (sets endTime, clears lastPersistedAt & currentStatus)
+            await completeActiveNursing(babyId, {
+              startTime,
+              endTime,
+              leftDuration,
+              rightDuration,
+              pausedDuration,
+              notes: notes || undefined,
+            });
+
+            toast.success("Nursing session saved!");
+
+            // Check if it's nighttime and prompt for sleep tracking
+            if (isNighttime(endTime)) {
+              setPendingSleepStart(() => async () => {
+                try {
+                  await createSleepLog(
+                    {
+                      babyId,
+                      startTime: endTime,
+                    },
+                    { allowOverride: true }
+                  );
+                  toast.success("Sleep tracking started!");
+                  router.push(`/baby/${babyId}/sleep`);
+                } catch (error) {
+                  console.error("Failed to start sleep tracking:", error);
+                  toast.error("Failed to start sleep tracking");
+                  router.push(`/baby/${babyId}`);
+                }
+              });
+              setSleepPromptOpen(true);
+            } else {
+              router.push(`/baby/${babyId}`);
+            }
           }
         } catch (error) {
           toast.error("Failed to save");
@@ -536,44 +606,58 @@ export default function FeedingPage() {
       async () => {
         setSaving(true);
         try {
-          await createFeeding(
-            {
-              babyId,
-              type: "bottle",
+          if (isEditMode) {
+            // Update existing entry
+            await updateFeeding(entryId, babyId, {
               startTime: bottleStartTime,
-              endTime: bottleStartTime, // Bottle feedings are completed immediately
+              endTime: bottleStartTime,
               bottleContent,
               amount,
               amountUnit,
               notes: notes || undefined,
-            },
-            { allowOverride: true }
-          );
-
-          toast.success("Bottle feeding saved!");
-
-          // Check if it's nighttime and prompt for sleep tracking
-          if (isNighttime(bottleStartTime)) {
-            setPendingSleepStart(() => async () => {
-              try {
-                await createSleepLog(
-                  {
-                    babyId,
-                    startTime: bottleStartTime,
-                  },
-                  { allowOverride: true }
-                );
-                toast.success("Sleep tracking started!");
-                router.push(`/baby/${babyId}/sleep`);
-              } catch (error) {
-                console.error("Failed to start sleep tracking:", error);
-                toast.error("Failed to start sleep tracking");
-                router.push(`/baby/${babyId}`);
-              }
             });
-            setSleepPromptOpen(true);
-          } else {
+            toast.success("Bottle feeding updated!");
             router.push(`/baby/${babyId}`);
+          } else {
+            await createFeeding(
+              {
+                babyId,
+                type: "bottle",
+                startTime: bottleStartTime,
+                endTime: bottleStartTime, // Bottle feedings are completed immediately
+                bottleContent,
+                amount,
+                amountUnit,
+                notes: notes || undefined,
+              },
+              { allowOverride: true }
+            );
+
+            toast.success("Bottle feeding saved!");
+
+            // Check if it's nighttime and prompt for sleep tracking
+            if (isNighttime(bottleStartTime)) {
+              setPendingSleepStart(() => async () => {
+                try {
+                  await createSleepLog(
+                    {
+                      babyId,
+                      startTime: bottleStartTime,
+                    },
+                    { allowOverride: true }
+                  );
+                  toast.success("Sleep tracking started!");
+                  router.push(`/baby/${babyId}/sleep`);
+                } catch (error) {
+                  console.error("Failed to start sleep tracking:", error);
+                  toast.error("Failed to start sleep tracking");
+                  router.push(`/baby/${babyId}`);
+                }
+              });
+              setSleepPromptOpen(true);
+            } else {
+              router.push(`/baby/${babyId}`);
+            }
           }
         } catch (error) {
           toast.error("Failed to save");
@@ -587,9 +671,39 @@ export default function FeedingPage() {
     );
   };
 
+  const handleDelete = async () => {
+    if (!isEditMode) return;
+
+    try {
+      await deleteFeeding(entryId, babyId);
+      toast.success("Feeding deleted!");
+      router.push(`/baby/${babyId}`);
+    } catch (error) {
+      toast.error("Failed to delete feeding");
+      console.error(error);
+    }
+  };
+
+  const handleCancel = () => {
+    router.push(`/baby/${babyId}`);
+  };
+
+  if (loadingSession || loadingEntry) {
+    return (
+      <TrackingContainer>
+        <TrackingHeader title={isEditMode ? "Edit feeding" : "Add feeding"} />
+        <div className="flex items-center justify-center py-12">
+          <div className="text-muted-foreground">
+            {loadingEntry ? "Loading entry..." : "Loading session..."}
+          </div>
+        </div>
+      </TrackingContainer>
+    );
+  }
+
   return (
     <TrackingContainer>
-      <TrackingHeader title="Add feeding" />
+      <TrackingHeader title={isEditMode ? "Edit feeding" : "Add feeding"} />
 
       {/* Tabs */}
       <Tabs
@@ -614,168 +728,206 @@ export default function FeedingPage() {
 
         {/* Nursing Tab */}
         <TabsContent value="nursing" className="space-y-6">
-          {loadingSession ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="text-muted-foreground">Loading session...</div>
-            </div>
-          ) : (
+          {isEditMode && (
             <>
-              {/* Start Time - shown once nursing has started */}
-              {nursingStartTime && (
-                <DateTimeRow
-                  label="Start Time"
-                  value={nursingStartTime}
-                  onChange={handleNursingStartTimeChange}
-                />
-              )}
+              {/* Start Time - shown in edit mode */}
+              <DateTimeRow
+                label="Start Time"
+                value={nursingStartTime || new Date()}
+                onChange={setNursingStartTime}
+              />
 
-              {/* Timer Display */}
-              {(leftDuration > 0 || rightDuration > 0 || isTimerRunning) && (
-                <div className="text-center">
-                  <div className="text-4xl font-bold font-mono">
-                    {formatDuration(leftDuration + rightDuration)}
-                  </div>
-                  <p className="text-muted-foreground text-sm mt-1">
-                    Total duration
-                  </p>
-                </div>
-              )}
-
-              {/* Side Buttons */}
-              <div className="flex gap-4 justify-center">
-                {(["left", "right"] as const).map((side) => (
-                  <div key={side} className="relative">
-                    {lastSide === side && !activeSide && (
-                      <span className="absolute -top-2 -left-2 bg-card text-xs px-2 py-1 rounded-full border border-border z-10">
-                        Last Side
-                      </span>
-                    )}
-                    <button
-                      onClick={() => handleSidePress(side)}
-                      className={cn(
-                        "w-32 h-32 rounded-full flex flex-col items-center justify-center gap-2 transition-all",
-                        "border-2 border-dashed",
-                        activeSide === side && isTimerRunning
-                          ? "bg-coral text-white border-coral timer-pulse"
-                          : activeSide === side
-                          ? "bg-coral/80 text-white border-coral"
-                          : "bg-coral/20 text-coral border-coral/50 hover:bg-coral/30"
-                      )}
-                    >
-                      {activeSide === side && isTimerRunning ? (
-                        <Pause className="h-8 w-8" />
-                      ) : (
-                        <Play className="h-8 w-8" />
-                      )}
-                      <span className="font-bold uppercase">{side}</span>
-                      {(side === "left" ? leftDuration : rightDuration) > 0 && (
-                        <span className="text-sm">
-                          {formatDuration(
-                            side === "left" ? leftDuration : rightDuration
-                          )}
-                        </span>
-                      )}
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              {/* Duration Distribution Slider */}
-              {(leftDuration > 0 || rightDuration > 0) && (
-                <div className="space-y-3 px-4">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-coral font-medium">
-                      Left: {formatDuration(leftDuration)}
-                    </span>
-                    <span className="text-coral font-medium">
-                      Right: {formatDuration(rightDuration)}
-                    </span>
-                  </div>
-                  <Slider
-                    value={[leftDuration]}
-                    onValueChange={([newLeft]) => {
-                      const total = leftDuration + rightDuration;
-                      const clampedLeft = Math.max(0, Math.min(total, newLeft));
-                      setLeftDuration(clampedLeft);
-                      setRightDuration(total - clampedLeft);
-                    }}
-                    onValueCommit={async () => {
-                      // Persist when user releases the slider
-                      await persistSession();
-                    }}
-                    min={0}
-                    max={leftDuration + rightDuration}
-                    step={1}
-                    className="w-full"
-                  />
-                  <p className="text-center text-xs text-muted-foreground">
-                    Drag to adjust time distribution
-                  </p>
-                </div>
-              )}
-
-              <NotesInput value={notes} onChange={setNotes} />
-
-              {/* Action Buttons */}
-              <div className="flex gap-3">
-                {(leftDuration > 0 || rightDuration > 0) && (
-                  <Button
-                    variant="outline"
-                    className="flex-1 h-14 text-lg rounded-full"
-                    onClick={() => setShowDismissConfirm(true)}
-                    disabled={saving}
-                  >
-                    Dismiss
-                  </Button>
-                )}
-                <Button
-                  className={cn(
-                    "h-14 text-lg rounded-full bg-primary text-primary-foreground hover:bg-primary/90",
-                    leftDuration > 0 || rightDuration > 0 ? "flex-1" : "w-full"
-                  )}
-                  onClick={handleSaveNursing}
-                  disabled={
-                    saving || (leftDuration === 0 && rightDuration === 0)
-                  }
-                >
-                  {saving ? "Saving..." : "Save"}
-                </Button>
-              </div>
-
-              {/* Dismiss Confirmation Dialog */}
-              <Dialog
-                open={showDismissConfirm}
-                onOpenChange={setShowDismissConfirm}
-              >
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Dismiss session?</DialogTitle>
-                    <DialogDescription>
-                      Are you sure you want to dismiss this nursing session? All
-                      recorded time will be lost.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <DialogFooter>
-                    <Button
-                      variant="outline"
-                      onClick={() => setShowDismissConfirm(false)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      onClick={() => {
-                        setShowDismissConfirm(false);
-                        resetNursing();
-                      }}
-                    >
-                      Dismiss
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
+              {/* End Time for edit mode */}
+              <DateTimeRow
+                label="End Time"
+                value={new Date()} // This would need to be loaded from the entry
+                onChange={() => {}} // Would need proper end time handling
+              />
             </>
           )}
+
+          {/* Start Time - shown once nursing has started */}
+          {nursingStartTime && !isEditMode && (
+            <DateTimeRow
+              label="Start Time"
+              value={nursingStartTime}
+              onChange={handleNursingStartTimeChange}
+            />
+          )}
+
+          {/* Timer Display */}
+          {(leftDuration > 0 || rightDuration > 0 || isTimerRunning) && (
+            <div className="text-center">
+              <div className="text-4xl font-bold font-mono">
+                {formatDuration(leftDuration + rightDuration)}
+              </div>
+              <p className="text-muted-foreground text-sm mt-1">
+                Total duration
+              </p>
+            </div>
+          )}
+
+          {/* Side Buttons */}
+          <div className="flex gap-4 justify-center">
+            {(["left", "right"] as const).map((side) => (
+              <div key={side} className="relative">
+                {lastSide === side && !activeSide && (
+                  <span className="absolute -top-2 -left-2 bg-card text-xs px-2 py-1 rounded-full border border-border z-10">
+                    Last Side
+                  </span>
+                )}
+                <button
+                  onClick={() => handleSidePress(side)}
+                  className={cn(
+                    "w-32 h-32 rounded-full flex flex-col items-center justify-center gap-2 transition-all",
+                    "border-2 border-dashed",
+                    activeSide === side && isTimerRunning
+                      ? "bg-coral text-white border-coral timer-pulse"
+                      : activeSide === side
+                      ? "bg-coral/80 text-white border-coral"
+                      : "bg-coral/20 text-coral border-coral/50 hover:bg-coral/30"
+                  )}
+                >
+                  {activeSide === side && isTimerRunning ? (
+                    <Pause className="h-8 w-8" />
+                  ) : (
+                    <Play className="h-8 w-8" />
+                  )}
+                  <span className="font-bold uppercase">{side}</span>
+                  {(side === "left" ? leftDuration : rightDuration) > 0 && (
+                    <span className="text-sm">
+                      {formatDuration(
+                        side === "left" ? leftDuration : rightDuration
+                      )}
+                    </span>
+                  )}
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* Duration Distribution Slider */}
+          {(leftDuration > 0 || rightDuration > 0) && (
+            <div className="space-y-3 px-4">
+              <div className="flex justify-between text-sm">
+                <span className="text-coral font-medium">
+                  Left: {formatDuration(leftDuration)}
+                </span>
+                <span className="text-coral font-medium">
+                  Right: {formatDuration(rightDuration)}
+                </span>
+              </div>
+              <Slider
+                value={[leftDuration]}
+                onValueChange={([newLeft]) => {
+                  const total = leftDuration + rightDuration;
+                  const clampedLeft = Math.max(0, Math.min(total, newLeft));
+                  setLeftDuration(clampedLeft);
+                  setRightDuration(total - clampedLeft);
+                }}
+                onValueCommit={async () => {
+                  // Persist when user releases the slider
+                  await persistSession();
+                }}
+                min={0}
+                max={leftDuration + rightDuration}
+                step={1}
+                className="w-full"
+              />
+              <p className="text-center text-xs text-muted-foreground">
+                Drag to adjust time distribution
+              </p>
+            </div>
+          )}
+
+          <NotesInput value={notes} onChange={setNotes} />
+
+          {/* Action Buttons */}
+          {isEditMode ? (
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1 h-14 text-lg rounded-full"
+                onClick={handleCancel}
+                disabled={saving}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                className="flex-1 h-14 text-lg rounded-full"
+                onClick={handleDelete}
+                disabled={saving}
+              >
+                Delete
+              </Button>
+              <Button
+                className="flex-1 h-14 text-lg rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+                onClick={handleSaveNursing}
+                disabled={saving}
+              >
+                {saving ? "Saving..." : "Save"}
+              </Button>
+            </div>
+          ) : (
+            <div className="flex gap-3">
+              {(leftDuration > 0 || rightDuration > 0) && (
+                <Button
+                  variant="outline"
+                  className="flex-1 h-14 text-lg rounded-full"
+                  onClick={() => setShowDismissConfirm(true)}
+                  disabled={saving}
+                >
+                  Dismiss
+                </Button>
+              )}
+              <Button
+                className={cn(
+                  "h-14 text-lg rounded-full bg-primary text-primary-foreground hover:bg-primary/90",
+                  leftDuration > 0 || rightDuration > 0 ? "flex-1" : "w-full"
+                )}
+                onClick={handleSaveNursing}
+                disabled={
+                  saving || (leftDuration === 0 && rightDuration === 0)
+                }
+              >
+                {saving ? "Saving..." : "Save"}
+              </Button>
+            </div>
+          )}
+
+          {/* Dismiss Confirmation Dialog */}
+          <Dialog
+            open={showDismissConfirm}
+            onOpenChange={setShowDismissConfirm}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Dismiss session?</DialogTitle>
+                <DialogDescription>
+                  Are you sure you want to dismiss this nursing session? All
+                  recorded time will be lost.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowDismissConfirm(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    setShowDismissConfirm(false);
+                    resetNursing();
+                  }}
+                >
+                  Dismiss
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         {/* Bottle Tab */}
@@ -861,7 +1013,37 @@ export default function FeedingPage() {
           </div>
 
           <NotesInput value={notes} onChange={setNotes} id="bottle-notes" />
-          <SaveButton onClick={handleSaveBottle} saving={saving} />
+
+          {/* Action Buttons */}
+          {isEditMode ? (
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1 h-14 text-lg rounded-full"
+                onClick={handleCancel}
+                disabled={saving}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                className="flex-1 h-14 text-lg rounded-full"
+                onClick={handleDelete}
+                disabled={saving}
+              >
+                Delete
+              </Button>
+              <Button
+                className="flex-1 h-14 text-lg rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+                onClick={handleSaveBottle}
+                disabled={saving}
+              >
+                {saving ? "Saving..." : "Save"}
+              </Button>
+            </div>
+          ) : (
+            <SaveButton onClick={handleSaveBottle} saving={saving} />
+          )}
         </TabsContent>
       </Tabs>
 

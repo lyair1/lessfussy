@@ -1,12 +1,15 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { format, addDays, subDays, isToday, isYesterday } from "date-fns";
-import { ChevronLeft, ChevronRight, Milk, Moon, Baby, Droplets, Pill, Thermometer, Activity, Ruler, Apple, Toilet } from "lucide-react";
+import { ChevronLeft, ChevronRight, Milk, Moon, Baby, Droplets, Pill, Thermometer, Activity, Ruler, Apple, Toilet, Calendar, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { getTimelineEntries } from "@/lib/actions/tracking";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+import { getTimelineEntries, TimeframeOption } from "@/lib/actions/tracking";
 import { cn } from "@/lib/utils";
 
 const entryTypeConfig = {
@@ -70,12 +73,14 @@ type TimelineEntry = Record<string, any> & {
 };
 
 export default function HistoryPage() {
+  const router = useRouter();
   const params = useParams();
   const babyId = params.babyId as string;
-  
-  const [date, setDate] = useState(new Date());
+
+  const [timeframe, setTimeframe] = useState<TimeframeOption>('7d');
   const [entries, setEntries] = useState<TimelineEntry[]>([]);
   const [loading, setLoading] = useState(false);
+
 
   useEffect(() => {
     async function fetchEntries() {
@@ -83,7 +88,7 @@ export default function HistoryPage() {
 
       setLoading(true);
       try {
-        const data = await getTimelineEntries(babyId, date);
+        const data = await getTimelineEntries(babyId, timeframe);
         setEntries(data as TimelineEntry[]);
       } catch (error) {
         console.error(error);
@@ -93,7 +98,7 @@ export default function HistoryPage() {
     }
 
     fetchEntries();
-  }, [babyId, date]);
+  }, [babyId, timeframe]);
 
   const formatDateLabel = (d: Date) => {
     if (isToday(d)) return "Today";
@@ -209,24 +214,24 @@ export default function HistoryPage() {
 
   return (
     <div className="space-y-6">
-      {/* Date Navigation */}
+      {/* Timeframe Selection */}
       <div className="flex items-center justify-between">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setDate(subDays(date, 1))}
-        >
-          <ChevronLeft className="h-5 w-5" />
-        </Button>
-        <h2 className="text-lg font-semibold">{formatDateLabel(date)}</h2>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setDate(addDays(date, 1))}
-          disabled={isToday(date)}
-        >
-          <ChevronRight className="h-5 w-5" />
-        </Button>
+        <div className="flex items-center gap-2">
+          <Clock className="h-5 w-5 text-muted-foreground" />
+          <Select value={timeframe as string} onValueChange={(value) => setTimeframe(value as TimeframeOption)}>
+            <SelectTrigger className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="24h">Last 24h</SelectItem>
+              <SelectItem value="1d">Today</SelectItem>
+              <SelectItem value="7d">Last 7 days</SelectItem>
+              <SelectItem value="30d">Last 30 days</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <h2 className="text-lg font-semibold">Activity History</h2>
+        <div className="w-32" /> {/* Spacer for balance */}
       </div>
 
       {/* Timeline */}
@@ -241,37 +246,37 @@ export default function HistoryPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {entries.map((entry) => {
             const config = entryTypeConfig[entry.entryType];
             const Icon = config.icon;
 
             return (
-              <Card key={entry.id} className="overflow-hidden">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-4">
-                    <div
-                      className={cn(
-                        "w-12 h-12 rounded-full flex items-center justify-center",
-                        config.color
-                      )}
-                    >
-                      <Icon className="h-6 w-6" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{config.label}</span>
-                        <span className="text-sm text-muted-foreground">
-                          {formatTime(entry.time)}
-                        </span>
-                      </div>
-                      <p className="text-sm text-muted-foreground truncate">
-                        {getEntryDescription(entry)}
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+              <div
+                key={entry.id}
+                className="flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent/50 cursor-pointer transition-colors"
+                onClick={() => {
+                  // Navigate to the edit URL for this entry
+                  router.push(`/baby/${babyId}/${entry.entryType}/${entry.id}`);
+                }}
+              >
+                <div
+                  className={cn(
+                    "w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0",
+                    config.color
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">
+                    {getEntryDescription(entry)}
+                  </p>
+                </div>
+                <div className="text-xs text-muted-foreground flex-shrink-0">
+                  {formatTime(entry.time)}
+                </div>
+              </div>
             );
           })}
         </div>
@@ -305,6 +310,7 @@ export default function HistoryPage() {
           </CardContent>
         </Card>
       )}
+
     </div>
   );
 }

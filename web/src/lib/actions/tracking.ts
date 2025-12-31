@@ -466,6 +466,21 @@ export async function createDiaper(data: Omit<NewDiaper, "id" | "createdAt">) {
   return result;
 }
 
+export async function updateDiaper(
+  id: string,
+  babyId: string,
+  data: {
+    time?: Date;
+    type?: "pee" | "poo" | "mixed" | "dry";
+    notes?: string;
+  }
+) {
+  await checkBabyAccess(babyId);
+  await db.update(diapers).set(data).where(eq(diapers.id, id));
+  revalidatePath("/");
+  revalidatePath("/history");
+}
+
 export async function deleteDiaper(id: string, babyId: string) {
   await checkBabyAccess(babyId);
   await db.delete(diapers).where(eq(diapers.id, id));
@@ -487,6 +502,21 @@ export async function createPottyLog(data: {
   revalidatePath("/");
   revalidatePath("/history");
   return result;
+}
+
+export async function updatePottyLog(
+  id: string,
+  babyId: string,
+  data: {
+    time?: Date;
+    type?: "sat_but_dry" | "success" | "accident";
+    notes?: string;
+  }
+) {
+  await checkBabyAccess(babyId);
+  await db.update(pottyLogs).set(data).where(eq(pottyLogs.id, id));
+  revalidatePath("/");
+  revalidatePath("/history");
 }
 
 export async function deletePottyLog(id: string, babyId: string) {
@@ -685,6 +715,25 @@ export async function completeActivePumping(
   }
 }
 
+export async function updatePumping(
+  id: string,
+  babyId: string,
+  data: {
+    startTime?: Date;
+    endTime?: Date;
+    leftAmount?: number;
+    rightAmount?: number;
+    totalAmount?: number;
+    amountUnit?: string;
+    notes?: string;
+  }
+) {
+  await checkBabyAccess(babyId);
+  await db.update(pumpings).set(data).where(eq(pumpings.id, id));
+  revalidatePath("/");
+  revalidatePath("/history");
+}
+
 export async function deletePumping(id: string, babyId: string) {
   await checkBabyAccess(babyId);
   await db.delete(pumpings).where(eq(pumpings.id, id));
@@ -710,6 +759,23 @@ export async function createMedicine(data: {
   return result;
 }
 
+export async function updateMedicine(
+  id: string,
+  babyId: string,
+  data: {
+    time?: Date;
+    name?: string;
+    amount?: number;
+    unit?: "oz" | "ml" | "drops" | "tsp";
+    notes?: string;
+  }
+) {
+  await checkBabyAccess(babyId);
+  await db.update(medicines).set(data).where(eq(medicines.id, id));
+  revalidatePath("/");
+  revalidatePath("/history");
+}
+
 export async function deleteMedicine(id: string, babyId: string) {
   await checkBabyAccess(babyId);
   await db.delete(medicines).where(eq(medicines.id, id));
@@ -732,6 +798,22 @@ export async function createTemperature(data: {
   revalidatePath("/");
   revalidatePath("/history");
   return result;
+}
+
+export async function updateTemperature(
+  id: string,
+  babyId: string,
+  data: {
+    time?: Date;
+    value?: number;
+    unit?: string;
+    notes?: string;
+  }
+) {
+  await checkBabyAccess(babyId);
+  await db.update(temperatures).set(data).where(eq(temperatures.id, id));
+  revalidatePath("/");
+  revalidatePath("/history");
 }
 
 export async function deleteTemperature(id: string, babyId: string) {
@@ -778,6 +860,22 @@ export async function createActivity(
   return result;
 }
 
+export async function updateActivity(
+  id: string,
+  babyId: string,
+  data: {
+    startTime?: Date;
+    endTime?: Date;
+    type?: "bath" | "tummy_time" | "story_time" | "screen_time" | "skin_to_skin" | "play" | "outdoor" | "other";
+    notes?: string;
+  }
+) {
+  await checkBabyAccess(babyId);
+  await db.update(activities).set(data).where(eq(activities.id, id));
+  revalidatePath("/");
+  revalidatePath("/history");
+}
+
 export async function deleteActivity(id: string, babyId: string) {
   await checkBabyAccess(babyId);
   await db.delete(activities).where(eq(activities.id, id));
@@ -807,6 +905,23 @@ export async function createGrowthLog(data: {
   return result;
 }
 
+export async function updateGrowthLog(
+  id: string,
+  babyId: string,
+  data: {
+    date?: string;
+    weight?: number;
+    height?: number;
+    headCircumference?: number;
+    notes?: string;
+  }
+) {
+  await checkBabyAccess(babyId);
+  await db.update(growthLogs).set(data).where(eq(growthLogs.id, id));
+  revalidatePath("/");
+  revalidatePath("/history");
+}
+
 export async function deleteGrowthLog(id: string, babyId: string) {
   await checkBabyAccess(babyId);
   await db.delete(growthLogs).where(eq(growthLogs.id, id));
@@ -830,6 +945,22 @@ export async function createSolid(data: {
   revalidatePath("/");
   revalidatePath("/history");
   return result;
+}
+
+export async function updateSolid(
+  id: string,
+  babyId: string,
+  data: {
+    time?: Date;
+    foods?: string[];
+    reaction?: "loved_it" | "meh" | "hated_it" | "allergy_or_sensitivity";
+    notes?: string;
+  }
+) {
+  await checkBabyAccess(babyId);
+  await db.update(solids).set(data).where(eq(solids.id, id));
+  revalidatePath("/");
+  revalidatePath("/history");
 }
 
 export async function deleteSolid(id: string, babyId: string) {
@@ -858,14 +989,47 @@ export async function getActivityConflicts(
   );
 }
 
-export async function getTimelineEntries(babyId: string, date: Date) {
+export type TimeframeOption = '24h' | '1d' | '7d' | '30d' | { start: Date; end: Date };
+
+export async function getTimelineEntries(babyId: string, timeframe: TimeframeOption = '7d') {
   await checkBabyAccess(babyId);
 
-  const startOfDay = new Date(date);
-  startOfDay.setHours(0, 0, 0, 0);
+  let startDate: Date;
+  let endDate: Date;
 
-  const endOfDay = new Date(date);
-  endOfDay.setHours(23, 59, 59, 999);
+  if (typeof timeframe === 'object' && 'start' in timeframe) {
+    // Custom date range
+    startDate = new Date(timeframe.start);
+    startDate.setHours(0, 0, 0, 0);
+    endDate = new Date(timeframe.end);
+    endDate.setHours(23, 59, 59, 999);
+  } else {
+    // Predefined timeframes
+    endDate = new Date();
+    endDate.setHours(23, 59, 59, 999);
+
+    switch (timeframe) {
+      case '24h':
+        startDate = new Date(endDate.getTime() - 24 * 60 * 60 * 1000);
+        break;
+      case '1d':
+        startDate = new Date(endDate);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case '7d':
+        startDate = new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case '30d':
+        startDate = new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      default:
+        // Default to 7d
+        startDate = new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+        startDate.setHours(0, 0, 0, 0);
+    }
+  }
 
   const [
     feedingsData,
@@ -882,80 +1046,80 @@ export async function getTimelineEntries(babyId: string, date: Date) {
     db.query.feedings.findMany({
       where: and(
         eq(feedings.babyId, babyId),
-        gte(feedings.startTime, startOfDay),
-        lte(feedings.startTime, endOfDay)
+        gte(feedings.startTime, startDate),
+        lte(feedings.startTime, endDate)
       ),
       orderBy: [desc(feedings.startTime)],
     }),
     db.query.sleepLogs.findMany({
       where: and(
         eq(sleepLogs.babyId, babyId),
-        gte(sleepLogs.startTime, startOfDay),
-        lte(sleepLogs.startTime, endOfDay)
+        gte(sleepLogs.startTime, startDate),
+        lte(sleepLogs.startTime, endDate)
       ),
       orderBy: [desc(sleepLogs.startTime)],
     }),
     db.query.diapers.findMany({
       where: and(
         eq(diapers.babyId, babyId),
-        gte(diapers.time, startOfDay),
-        lte(diapers.time, endOfDay)
+        gte(diapers.time, startDate),
+        lte(diapers.time, endDate)
       ),
       orderBy: [desc(diapers.time)],
     }),
     db.query.pottyLogs.findMany({
       where: and(
         eq(pottyLogs.babyId, babyId),
-        gte(pottyLogs.time, startOfDay),
-        lte(pottyLogs.time, endOfDay)
+        gte(pottyLogs.time, startDate),
+        lte(pottyLogs.time, endDate)
       ),
       orderBy: [desc(pottyLogs.time)],
     }),
     db.query.pumpings.findMany({
       where: and(
         eq(pumpings.babyId, babyId),
-        gte(pumpings.startTime, startOfDay),
-        lte(pumpings.startTime, endOfDay)
+        gte(pumpings.startTime, startDate),
+        lte(pumpings.startTime, endDate)
       ),
       orderBy: [desc(pumpings.startTime)],
     }),
     db.query.medicines.findMany({
       where: and(
         eq(medicines.babyId, babyId),
-        gte(medicines.time, startOfDay),
-        lte(medicines.time, endOfDay)
+        gte(medicines.time, startDate),
+        lte(medicines.time, endDate)
       ),
       orderBy: [desc(medicines.time)],
     }),
     db.query.temperatures.findMany({
       where: and(
         eq(temperatures.babyId, babyId),
-        gte(temperatures.time, startOfDay),
-        lte(temperatures.time, endOfDay)
+        gte(temperatures.time, startDate),
+        lte(temperatures.time, endDate)
       ),
       orderBy: [desc(temperatures.time)],
     }),
     db.query.activities.findMany({
       where: and(
         eq(activities.babyId, babyId),
-        gte(activities.startTime, startOfDay),
-        lte(activities.startTime, endOfDay)
+        gte(activities.startTime, startDate),
+        lte(activities.startTime, endDate)
       ),
       orderBy: [desc(activities.startTime)],
     }),
     db.query.growthLogs.findMany({
       where: and(
         eq(growthLogs.babyId, babyId),
-        gte(growthLogs.date, startOfDay.toISOString().split("T")[0]),
-        lte(growthLogs.date, endOfDay.toISOString().split("T")[0])
+        gte(growthLogs.date, startDate.toISOString().split("T")[0]),
+        lte(growthLogs.date, endDate.toISOString().split("T")[0])
       ),
       orderBy: [desc(growthLogs.date)],
     }),
     db.query.solids.findMany({
       where: and(
         eq(solids.babyId, babyId),
-        gte(solids.time, startOfDay),
-        lte(solids.time, endOfDay)
+        gte(solids.time, startDate),
+        lte(solids.time, endDate)
       ),
       orderBy: [desc(solids.time)],
     }),

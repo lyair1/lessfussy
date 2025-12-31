@@ -274,7 +274,7 @@ export function TrackingGrid({
     return (
       <div key={type.id} className="relative group">
         <Link
-          href={`/baby/${babyId}/${type.id}`}
+          href={`/baby/${babyId}/${type.id}/new`}
           className={cn(
             "flex flex-col items-center justify-center p-4 sm:p-6 rounded-2xl transition-all duration-200",
             "border border-border/50 hover:border-border",

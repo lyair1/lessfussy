@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter, useParams, useSearchParams } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useRouter, useParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   Droplet,
@@ -20,8 +20,9 @@ import {
   NotesInput,
   SaveButton,
 } from "@/components/tracking/shared";
-import { createDiaper, createPottyLog } from "@/lib/actions/tracking";
+import { createDiaper, createPottyLog, updateDiaper, updatePottyLog, deleteDiaper, deletePottyLog } from "@/lib/actions/tracking";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 type DiaperType = "pee" | "poo" | "mixed" | "dry";
 type PottyType = "sat_but_dry" | "success" | "accident";
@@ -42,16 +43,52 @@ const pottyOptions = [
 export default function DiaperPage() {
   const router = useRouter();
   const params = useParams();
-  const searchParams = useSearchParams();
   const babyId = params.babyId as string;
+  const entryId = params.entryId as string;
 
-  const initialTab = searchParams.get("tab") === "potty" ? "potty" : "diaper";
-  const [activeTab, setActiveTab] = useState<"diaper" | "potty">(initialTab);
+  const isEditMode = !!entryId && entryId !== 'new';
+
+  const [activeTab, setActiveTab] = useState<"diaper" | "potty">("diaper");
   const [time, setTime] = useState(new Date());
   const [diaperType, setDiaperType] = useState<DiaperType | null>(null);
   const [pottyType, setPottyType] = useState<PottyType | null>(null);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [loadingEntry, setLoadingEntry] = useState(isEditMode);
+
+  // Load entry data if in edit mode
+  useEffect(() => {
+    async function loadEntry() {
+      if (!isEditMode) return;
+
+      setLoadingEntry(true);
+      try {
+        const { getTimelineEntries } = await import("@/lib/actions/tracking");
+        const entries = await getTimelineEntries(babyId, '7d');
+        const entry = entries.find(e => e.id === entryId);
+
+        if (entry) {
+          setTime(new Date(entry.time));
+          setNotes(entry.notes || "");
+
+          if (entry.entryType === 'diaper') {
+            setActiveTab('diaper');
+            setDiaperType(entry.type);
+          } else if (entry.entryType === 'potty') {
+            setActiveTab('potty');
+            setPottyType(entry.type);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load entry:', error);
+        toast.error('Failed to load entry');
+      } finally {
+        setLoadingEntry(false);
+      }
+    }
+
+    loadEntry();
+  }, [isEditMode, entryId, babyId]);
 
   const handleSave = async () => {
     if (!babyId) {
@@ -71,24 +108,45 @@ export default function DiaperPage() {
 
     setSaving(true);
     try {
-      if (activeTab === "diaper") {
-        await createDiaper({
-          babyId,
-          time,
-          type: diaperType!,
-          notes: notes || undefined,
-        });
-        toast.success("Diaper logged!");
+      if (isEditMode) {
+        // Update existing entry
+        if (activeTab === "diaper") {
+          await updateDiaper(entryId, babyId, {
+            time,
+            type: diaperType!,
+            notes: notes || undefined,
+          });
+          toast.success("Diaper updated!");
+        } else {
+          await updatePottyLog(entryId, babyId, {
+            time,
+            type: pottyType!,
+            notes: notes || undefined,
+          });
+          toast.success("Potty updated!");
+        }
+        router.push(`/baby/${babyId}`);
       } else {
-        await createPottyLog({
-          babyId,
-          time,
-          type: pottyType!,
-          notes: notes || undefined,
-        });
-        toast.success("Potty logged!");
+        // Create new entry
+        if (activeTab === "diaper") {
+          await createDiaper({
+            babyId,
+            time,
+            type: diaperType!,
+            notes: notes || undefined,
+          });
+          toast.success("Diaper logged!");
+        } else {
+          await createPottyLog({
+            babyId,
+            time,
+            type: pottyType!,
+            notes: notes || undefined,
+          });
+          toast.success("Potty logged!");
+        }
+        router.push(`/baby/${babyId}`);
       }
-      router.push(`/baby/${babyId}`);
     } catch (error) {
       toast.error("Failed to save");
       console.error(error);
@@ -97,9 +155,42 @@ export default function DiaperPage() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!isEditMode) return;
+
+    try {
+      if (activeTab === "diaper") {
+        await deleteDiaper(entryId, babyId);
+        toast.success("Diaper deleted!");
+      } else {
+        await deletePottyLog(entryId, babyId);
+        toast.success("Potty deleted!");
+      }
+      router.push(`/baby/${babyId}`);
+    } catch (error) {
+      toast.error("Failed to delete");
+      console.error(error);
+    }
+  };
+
+  const handleCancel = () => {
+    router.push(`/baby/${babyId}`);
+  };
+
+  if (loadingEntry) {
+    return (
+      <TrackingContainer>
+        <TrackingHeader title={isEditMode ? "Edit diaper" : "Add diaper"} />
+        <div className="flex items-center justify-center py-12">
+          <div className="text-muted-foreground">Loading entry...</div>
+        </div>
+      </TrackingContainer>
+    );
+  }
+
   return (
     <TrackingContainer>
-      <TrackingHeader title={`Add ${activeTab === "diaper" ? "diaper" : "potty"}`} />
+      <TrackingHeader title={isEditMode ? `Edit ${activeTab === "diaper" ? "diaper" : "potty"}` : `Add ${activeTab === "diaper" ? "diaper" : "potty"}`} />
 
       {/* Tabs */}
       <Tabs
@@ -124,7 +215,7 @@ export default function DiaperPage() {
 
         {/* Diaper Tab */}
         <TabsContent value="diaper" className="space-y-6">
-          <DateTimeRow label="Start time:" value={time} onChange={setTime} />
+          <DateTimeRow label="Time:" value={time} onChange={setTime} />
 
           {/* Type Selection */}
           <div className="flex justify-center gap-4 py-6">
@@ -151,7 +242,7 @@ export default function DiaperPage() {
 
         {/* Potty Tab */}
         <TabsContent value="potty" className="space-y-6">
-          <DateTimeRow label="Start time:" value={time} onChange={setTime} />
+          <DateTimeRow label="Time:" value={time} onChange={setTime} />
 
           {/* Type Selection */}
           <div className="flex justify-center gap-4 py-6">
@@ -177,14 +268,42 @@ export default function DiaperPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Save Button */}
-      <div className="mt-6">
-        <SaveButton
-          onClick={handleSave}
-          saving={saving}
-          disabled={activeTab === "diaper" ? !diaperType : !pottyType}
-        />
-      </div>
+      {/* Action Buttons */}
+      {isEditMode ? (
+        <div className="flex gap-3">
+          <Button
+            variant="outline"
+            className="flex-1 h-14 text-lg rounded-full"
+            onClick={handleCancel}
+            disabled={saving}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            className="flex-1 h-14 text-lg rounded-full"
+            onClick={handleDelete}
+            disabled={saving}
+          >
+            Delete
+          </Button>
+          <Button
+            className="flex-1 h-14 text-lg rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+            onClick={handleSave}
+            disabled={saving || (activeTab === "diaper" ? !diaperType : !pottyType)}
+          >
+            {saving ? "Saving..." : "Save"}
+          </Button>
+        </div>
+      ) : (
+        <div className="mt-6">
+          <SaveButton
+            onClick={handleSave}
+            saving={saving}
+            disabled={activeTab === "diaper" ? !diaperType : !pottyType}
+          />
+        </div>
+      )}
     </TrackingContainer>
   );
 }
