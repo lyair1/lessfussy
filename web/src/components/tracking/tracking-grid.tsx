@@ -276,7 +276,7 @@ export function TrackingGrid({
         <Link
           href={`/baby/${babyId}/${type.id}/new`}
           className={cn(
-            "flex flex-col items-center justify-center p-4 sm:p-6 rounded-2xl transition-all duration-200",
+            "flex flex-col items-center justify-center p-4 sm:p-6 rounded-2xl transition-all duration-200 h-32",
             "border border-border/50 hover:border-border",
             "hover:scale-[1.02] active:scale-[0.98]",
             type.color
