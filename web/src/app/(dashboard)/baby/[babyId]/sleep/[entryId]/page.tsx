@@ -743,8 +743,8 @@ export default function SleepPage() {
         onConfirm={handleConflictConfirm}
         onCancel={handleConflictCancel}
         onGoToActivity={(activityType) => {
-          if (activityType === "feeding") router.push(`/baby/${babyId}/feeding`);
-          if (activityType === "pumping") router.push(`/baby/${babyId}/pumping`);
+          if (activityType === "feeding") router.push(`/baby/${babyId}/feeding/new`);
+          if (activityType === "pumping") router.push(`/baby/${babyId}/pumping/new`);
           // For sleep conflicts, stay on current page
         }}
         loading={saving}

@@ -571,7 +571,7 @@ export default function FeedingPage() {
                     { allowOverride: true }
                   );
                   toast.success("Sleep tracking started!");
-                  router.push(`/baby/${babyId}/sleep`);
+                  router.push(`/baby/${babyId}/sleep/new`);
                 } catch (error) {
                   console.error("Failed to start sleep tracking:", error);
                   toast.error("Failed to start sleep tracking");
@@ -647,7 +647,7 @@ export default function FeedingPage() {
                     { allowOverride: true }
                   );
                   toast.success("Sleep tracking started!");
-                  router.push(`/baby/${babyId}/sleep`);
+                  router.push(`/baby/${babyId}/sleep/new`);
                 } catch (error) {
                   console.error("Failed to start sleep tracking:", error);
                   toast.error("Failed to start sleep tracking");
@@ -1056,9 +1056,9 @@ export default function FeedingPage() {
         onConfirm={handleConflictConfirm}
         onCancel={handleConflictCancel}
         onGoToActivity={(activityType) => {
-          if (activityType === "sleep") router.push(`/baby/${babyId}/sleep`);
+          if (activityType === "sleep") router.push(`/baby/${babyId}/sleep/new`);
           if (activityType === "pumping")
-            router.push(`/baby/${babyId}/pumping`);
+            router.push(`/baby/${babyId}/pumping/new`);
           // For feeding conflicts, stay on current page
         }}
         loading={saving}

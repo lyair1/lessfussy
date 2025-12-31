@@ -19,7 +19,7 @@ export function LastFeeding({ feeding, babyId, babyName }: LastFeedingProps) {
 
   const handleClick = () => {
     if (isActive) {
-      router.push(`/baby/${babyId}/feeding`);
+      router.push(`/baby/${babyId}/feeding/new`);
     } else {
       router.push(`/baby/${babyId}/history`);
     }

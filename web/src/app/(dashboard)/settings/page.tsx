@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
-import { Settings, Ruler, Thermometer, Clock, Save, Sun, Moon, Monitor } from "lucide-react";
+import { Settings, Scale, Thermometer, Clock, Save, Sun, Moon, Monitor } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -116,7 +116,7 @@ export default function SettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Ruler className="h-5 w-5 text-accent" />
+            <Scale className="h-5 w-5 text-accent" />
             Measurement Units
           </CardTitle>
           <CardDescription>

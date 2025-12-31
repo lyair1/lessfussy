@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import {
@@ -10,9 +11,9 @@ import {
   Thermometer,
   Pill,
   Activity,
-  Ruler,
-  Apple,
-  Toilet,
+  Scale,
+  Cookie,
+  Bath,
   Star,
   ChevronDown,
   ChevronUp,
@@ -86,21 +87,21 @@ const trackingTypes = [
   {
     id: "growth",
     label: "Growth",
-    icon: Ruler,
+    icon: Scale,
     color: "bg-accent/20 text-accent hover:bg-accent/30",
     description: "Weight & height",
   },
   {
     id: "potty",
     label: "Potty",
-    icon: Toilet,
+    icon: Bath,
     color: "bg-muted text-muted-foreground hover:bg-muted/80",
     description: "Potty training",
   },
   {
     id: "solids",
     label: "Solids",
-    icon: Apple,
+    icon: Cookie,
     color: "bg-chart-3/20 text-chart-3 hover:bg-chart-3/30",
     description: "Solid food intake",
   },
@@ -274,9 +275,11 @@ export function TrackingGrid({
     return (
       <div key={type.id} className="relative group">
         <Link
-          href={`/baby/${babyId}/${type.id}/new`}
+          href={`/baby/${babyId}/${
+            type.id === "potty" ? "diaper" : type.id
+          }/new`}
           className={cn(
-            "flex flex-col items-center justify-center p-4 sm:p-6 rounded-2xl transition-all duration-200 h-32",
+            "flex flex-col items-center justify-center p-4 sm:p-6 rounded-2xl transition-all duration-200 h-36 sm:h-40",
             "border border-border/50 hover:border-border",
             "hover:scale-[1.02] active:scale-[0.98]",
             type.color
@@ -299,8 +302,8 @@ export function TrackingGrid({
 
           {/* Last tracking info */}
           {lastTimeText && (
-            <div className="w-full mt-2 hidden sm:block">
-              <div className="text-xs text-muted-foreground/80 px-1 text-center">
+            <div className="w-full mt-1 sm:mt-2">
+              <div className="text-[10px] sm:text-xs text-muted-foreground/80 px-1 text-center">
                 <div>
                   {lastTimeText.endsWith("...")
                     ? lastTimeText

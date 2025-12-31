@@ -910,9 +910,13 @@ export async function updateGrowthLog(
   babyId: string,
   data: {
     date?: string;
+    time?: Date;
     weight?: number;
+    weightUnit?: string;
     height?: number;
+    heightUnit?: string;
     headCircumference?: number;
+    headUnit?: string;
     notes?: string;
   }
 ) {

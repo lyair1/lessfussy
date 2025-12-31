@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { format, addDays, subDays, isToday, isYesterday } from "date-fns";
-import { ChevronLeft, ChevronRight, Milk, Moon, Baby, Droplets, Pill, Thermometer, Activity, Ruler, Apple, Toilet, Calendar, Clock } from "lucide-react";
+import { ChevronLeft, ChevronRight, Milk, Moon, Baby, Droplets, Pill, Thermometer, Activity, Scale, Cookie, Bath, Calendar, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -29,7 +29,7 @@ const entryTypeConfig = {
     color: "bg-yellow/20 text-yellow",
   },
   potty: {
-    icon: Toilet,
+    icon: Bath,
     label: "Potty",
     color: "bg-muted text-muted-foreground",
   },
@@ -54,12 +54,12 @@ const entryTypeConfig = {
     color: "bg-lime/20 text-lime",
   },
   growth: {
-    icon: Ruler,
+    icon: Scale,
     label: "Growth",
     color: "bg-accent/20 text-accent",
   },
   solids: {
-    icon: Apple,
+    icon: Cookie,
     label: "Solids",
     color: "bg-chart-3/20 text-chart-3",
   },
@@ -257,7 +257,7 @@ export default function HistoryPage() {
                 className="flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent/50 cursor-pointer transition-colors"
                 onClick={() => {
                   // Navigate to the edit URL for this entry
-                  router.push(`/baby/${babyId}/${entry.entryType}/${entry.id}`);
+                  router.push(`/baby/${babyId}/${entry.entryType === 'potty' ? 'diaper' : entry.entryType}/${entry.id}`);
                 }}
               >
                 <div

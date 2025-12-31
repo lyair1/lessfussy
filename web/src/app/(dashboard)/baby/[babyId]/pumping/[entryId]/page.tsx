@@ -819,8 +819,8 @@ export default function PumpingPage() {
         onConfirm={handleConflictConfirm}
         onCancel={handleConflictCancel}
         onGoToActivity={(activityType) => {
-          if (activityType === "feeding") router.push(`/baby/${babyId}/feeding`);
-          if (activityType === "sleep") router.push(`/baby/${babyId}/sleep`);
+          if (activityType === "feeding") router.push(`/baby/${babyId}/feeding/new`);
+          if (activityType === "sleep") router.push(`/baby/${babyId}/sleep/new`);
           // For pumping conflicts, stay on current page
         }}
         loading={saving}

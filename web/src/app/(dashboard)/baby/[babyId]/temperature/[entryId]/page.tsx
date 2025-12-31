@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -12,23 +12,55 @@ import {
   NotesInput,
   SaveButton,
 } from "@/components/tracking/shared";
-import { createTemperature } from "@/lib/actions/tracking";
+import { createTemperature, updateTemperature, deleteTemperature } from "@/lib/actions/tracking";
 import { cn } from "@/lib/utils";
 
 export default function TemperaturePage() {
   const router = useRouter();
   const params = useParams();
   const babyId = params.babyId as string;
+  const entryId = params.entryId as string;
+
+  const isEditMode = !!entryId && entryId !== 'new';
 
   const [time, setTime] = useState(new Date());
   const [unit, setUnit] = useState<"F" | "C">("F");
   const [temperature, setTemperature] = useState(98.6);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [loadingEntry, setLoadingEntry] = useState(isEditMode);
 
   // Temperature ranges
   const minTemp = unit === "F" ? 93 : 34;
   const maxTemp = unit === "F" ? 105 : 41;
+
+  // Load entry data if in edit mode
+  useEffect(() => {
+    async function loadEntry() {
+      if (!isEditMode) return;
+
+      setLoadingEntry(true);
+      try {
+        const { getTimelineEntries } = await import("@/lib/actions/tracking");
+        const entries = await getTimelineEntries(babyId, '7d');
+        const entry = entries.find(e => e.id === entryId);
+
+        if (entry && entry.entryType === 'temperature') {
+          setTime(new Date(entry.time));
+          setTemperature(entry.value);
+          setUnit(entry.unit as "F" | "C");
+          setNotes(entry.notes || "");
+        }
+      } catch (error) {
+        console.error('Failed to load entry:', error);
+        toast.error('Failed to load entry');
+      } finally {
+        setLoadingEntry(false);
+      }
+    }
+
+    loadEntry();
+  }, [isEditMode, entryId, babyId]);
 
   // Convert temperature when switching units
   const handleUnitChange = (newUnit: "F" | "C") => {
@@ -63,14 +95,24 @@ export default function TemperaturePage() {
 
     setSaving(true);
     try {
-      await createTemperature({
-        babyId,
-        time,
-        value: temperature,
-        unit,
-        notes: notes || undefined,
-      });
-      toast.success("Temperature logged!");
+      if (isEditMode) {
+        await updateTemperature(entryId, babyId, {
+          time,
+          value: temperature,
+          unit,
+          notes: notes || undefined,
+        });
+        toast.success("Temperature updated!");
+      } else {
+        await createTemperature({
+          babyId,
+          time,
+          value: temperature,
+          unit,
+          notes: notes || undefined,
+        });
+        toast.success("Temperature logged!");
+      }
       router.push(`/baby/${babyId}`);
     } catch (error) {
       toast.error("Failed to save");
@@ -80,11 +122,39 @@ export default function TemperaturePage() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!isEditMode) return;
+
+    try {
+      await deleteTemperature(entryId, babyId);
+      toast.success("Temperature deleted!");
+      router.push(`/baby/${babyId}`);
+    } catch (error) {
+      toast.error("Failed to delete");
+      console.error(error);
+    }
+  };
+
+  const handleCancel = () => {
+    router.push(`/baby/${babyId}`);
+  };
+
+  if (loadingEntry) {
+    return (
+      <TrackingContainer>
+        <TrackingHeader title={isEditMode ? "Edit temperature" : "Add temperature"} />
+        <div className="flex items-center justify-center py-12">
+          <div className="text-muted-foreground">Loading entry...</div>
+        </div>
+      </TrackingContainer>
+    );
+  }
+
   return (
     <TrackingContainer>
-      <TrackingHeader title="Temperature" />
+      <TrackingHeader title={isEditMode ? "Edit temperature" : "Temperature"} />
       <TrackingContent>
-        <DateTimeRow label="Start time:" value={time} onChange={setTime} />
+        <DateTimeRow label="Time:" value={time} onChange={setTime} />
 
         {/* Unit Toggle */}
         <div className="flex items-center justify-between">
@@ -192,7 +262,37 @@ export default function TemperaturePage() {
           label="Notes"
           placeholder="+ add note"
         />
-        <SaveButton onClick={handleSave} saving={saving} />
+
+        {/* Action Buttons */}
+        {isEditMode ? (
+          <div className="flex gap-3">
+            <Button
+              variant="outline"
+              className="flex-1 h-14 text-lg rounded-full"
+              onClick={handleCancel}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              className="flex-1 h-14 text-lg rounded-full"
+              onClick={handleDelete}
+              disabled={saving}
+            >
+              Delete
+            </Button>
+            <Button
+              className="flex-1 h-14 text-lg rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+              onClick={handleSave}
+              disabled={saving}
+            >
+              {saving ? "Saving..." : "Save"}
+            </Button>
+          </div>
+        ) : (
+          <SaveButton onClick={handleSave} saving={saving} />
+        )}
       </TrackingContent>
     </TrackingContainer>
   );
