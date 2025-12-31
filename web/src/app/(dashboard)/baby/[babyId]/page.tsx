@@ -9,12 +9,14 @@ interface BabyDashboardPageProps {
   params: Promise<{ babyId: string }>;
 }
 
-export default async function BabyDashboardPage({ params }: BabyDashboardPageProps) {
+export default async function BabyDashboardPage({
+  params,
+}: BabyDashboardPageProps) {
   const { babyId } = await params;
   const [baby, favorites, lastFeeding] = await Promise.all([
     getBaby(babyId),
     getFavoriteActivities(),
-    getLastFeeding(babyId),
+    getLastFeeding(babyId).then((result) => result ?? null),
   ]);
 
   if (!baby) {
@@ -36,4 +38,3 @@ export default async function BabyDashboardPage({ params }: BabyDashboardPagePro
     </div>
   );
 }
-
