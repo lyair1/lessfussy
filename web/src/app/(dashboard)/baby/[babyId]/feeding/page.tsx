@@ -372,11 +372,15 @@ export default function FeedingPage() {
       // Switch to new side or start
       const startTime = nursingStartTime || new Date();
       if (!nursingStartTime) {
-        // Check for conflicts before starting new session
+        // Update UI state immediately for responsive feedback
+        setNursingStartTime(startTime);
+        setActiveSide(side);
+        setIsTimerRunning(true);
+
+        // Check for conflicts and persist to DB (async)
         await checkConflictsAndProceed(
           "feeding",
           async () => {
-            setNursingStartTime(startTime);
             // Immediately persist to DB when starting
             await startOrUpdateActiveNursing(
               {
