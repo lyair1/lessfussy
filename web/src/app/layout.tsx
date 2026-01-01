@@ -13,14 +13,76 @@ const nunito = Nunito({
 });
 
 export const metadata: Metadata = {
-  title: "LessFussy - Track Your Baby's Day",
+  title: {
+    default: "LessFussy - Simple Baby Tracking App for Modern Parents",
+    template: "%s | LessFussy",
+  },
   description:
-    "A comprehensive baby tracking app for parents to log feedings, sleep, diapers, and more.",
+    "Track your baby's feeding, sleep, diapers, and milestones with ease. LessFussy is the beautiful, intuitive baby tracker that helps parents stay organized.",
+  keywords: [
+    "baby tracker",
+    "baby tracking app",
+    "newborn tracker",
+    "feeding tracker",
+    "sleep tracker",
+    "diaper tracker",
+    "baby log",
+    "parenting app",
+    "baby care",
+    "infant tracker",
+  ],
+  authors: [{ name: "LessFussy" }],
+  creator: "LessFussy",
+  publisher: "LessFussy",
+  metadataBase: new URL("https://lessfussy.com"),
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: "https://lessfussy.com",
+    siteName: "LessFussy",
+    title: "LessFussy - Simple Baby Tracking App for Modern Parents",
+    description:
+      "Track your baby's feeding, sleep, diapers, and milestones with ease. The beautiful, intuitive baby tracker for stress-free parenting.",
+    images: [
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "LessFussy - Baby Tracking App",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "LessFussy - Simple Baby Tracking App",
+    description: "The beautiful, intuitive baby tracker for stress-free parenting.",
+    images: ["/og-image.png"],
+    creator: "@lessfussy",
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-video-preview": -1,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
+  },
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
     title: "LessFussy",
+  },
+  verification: {
+    // Add your verification codes here
+    // google: "your-google-verification-code",
+    // yandex: "your-yandex-verification-code",
   },
 };
 

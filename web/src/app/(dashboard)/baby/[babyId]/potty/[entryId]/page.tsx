@@ -16,3 +16,4 @@ export default function PottyEntryPage() {
 
   return null;
 }
+
