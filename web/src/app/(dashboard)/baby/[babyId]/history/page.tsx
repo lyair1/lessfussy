@@ -652,7 +652,8 @@ export default function HistoryPage() {
       ) : (
         <div className="space-y-4">
           {Object.entries(entriesByDay).map(([day, dayEntries]) => {
-            const dayDate = new Date(day);
+            // Parse the date string correctly in local timezone by appending time
+            const dayDate = new Date(day + "T00:00:00");
 
             return (
               <div key={day} className="space-y-2">
