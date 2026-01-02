@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { format, isToday, isYesterday } from "date-fns";
+import { format, isToday, isYesterday, differenceInHours, differenceInMinutes } from "date-fns";
 import {
   Milk,
   Moon,
@@ -168,7 +168,29 @@ export default function HistoryPage() {
   };
 
   const formatTime = (d: Date) => {
-    return format(new Date(d), "h:mm a");
+    const date = new Date(d);
+    const timeStr = format(date, "h:mm a");
+    
+    // Check if event happened in the past 10 hours
+    const now = new Date();
+    const totalMinutes = differenceInMinutes(now, date);
+    const hoursDiff = Math.floor(totalMinutes / 60);
+    const minutesDiff = totalMinutes % 60;
+    
+    if (totalMinutes >= 0 && hoursDiff < 10) {
+      let relativeTime = "";
+      if (hoursDiff > 0) {
+        relativeTime = `${hoursDiff} ${hoursDiff === 1 ? "hour" : "hours"}`;
+        if (minutesDiff > 0) {
+          relativeTime += ` ${minutesDiff} ${minutesDiff === 1 ? "minute" : "minutes"}`;
+        }
+      } else {
+        relativeTime = `${minutesDiff} ${minutesDiff === 1 ? "minute" : "minutes"}`;
+      }
+      return `${timeStr} (${relativeTime} ago)`;
+    }
+    
+    return timeStr;
   };
 
   const getEntryDescription = (entry: TimelineEntry, babyName: string) => {
