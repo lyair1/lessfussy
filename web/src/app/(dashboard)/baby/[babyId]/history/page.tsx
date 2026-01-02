@@ -177,23 +177,47 @@ export default function HistoryPage() {
     switch (entry.entryType) {
       case "feeding": {
         if (entry.type === "nursing") {
-          // Use stored durations directly
-          const leftSecs = entry.leftDuration || 0;
-          const rightSecs = entry.rightDuration || 0;
+          // Check if session is still in progress
+          const isActive = !entry.endTime && entry.currentStatus;
+
+          let leftSecs = entry.leftDuration || 0;
+          let rightSecs = entry.rightDuration || 0;
+
+          // If active, calculate current elapsed time
+          if (isActive) {
+            const now = new Date();
+            const startTime = new Date(entry.startTime || entry.time);
+            const lastPersisted = entry.lastPersistedAt
+              ? new Date(entry.lastPersistedAt)
+              : startTime;
+
+            // Add elapsed time since last persist to the currently active side
+            const elapsedSinceLastPersist = Math.floor(
+              (now.getTime() - lastPersisted.getTime()) / 1000
+            );
+
+            if (entry.currentStatus === "left") {
+              leftSecs += elapsedSinceLastPersist;
+            } else if (entry.currentStatus === "right") {
+              rightSecs += elapsedSinceLastPersist;
+            }
+            // If paused, don't add any additional time
+          }
+
           const totalSecs = leftSecs + rightSecs;
 
           if (totalSecs > 0) {
             const totalMins = Math.floor(totalSecs / 60);
             const leftMins = Math.floor(leftSecs / 60);
             const rightMins = Math.floor(rightSecs / 60);
+
+            // Use different text for active vs completed sessions
+            const verb = isActive ? "is nursing" : "nursed";
+
             if (leftMins > 0 && rightMins > 0) {
-              return `${name} nursed for ${totalMins} minutes (L: ${leftMins}, R: ${rightMins})`;
-            } else if (leftMins > 0) {
-              return `${name} nursed on the left for ${leftMins} minutes`;
-            } else if (rightMins > 0) {
-              return `${name} nursed on the right for ${rightMins} minutes`;
+              return `${name} ${verb} for ${totalMins} minutes (L: ${leftMins}, R: ${rightMins})`;
             }
-            return `${name} nursed for ${totalMins} minutes`;
+            return `${name} ${verb} for ${totalMins} minutes`;
           }
           return `${name} is nursing...`;
         } else {
@@ -650,9 +674,17 @@ export default function HistoryPage() {
                         key={entry.id}
                         className="flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent/50 cursor-pointer transition-colors"
                         onClick={() => {
-                          // For sleep entries without endTime (in progress), go to "new" view instead of edit
+                          // For entries without endTime (in progress), go to "new" view instead of edit
                           if (entry.entryType === "sleep" && !entry.endTime) {
                             router.push(`/baby/${babyId}/sleep/new`);
+                          } else if (
+                            entry.entryType === "feeding" &&
+                            entry.type === "nursing" &&
+                            !entry.endTime &&
+                            entry.currentStatus
+                          ) {
+                            // Active nursing session - go to "new" view
+                            router.push(`/baby/${babyId}/feeding/new`);
                           } else {
                             router.push(
                               `/baby/${babyId}/${

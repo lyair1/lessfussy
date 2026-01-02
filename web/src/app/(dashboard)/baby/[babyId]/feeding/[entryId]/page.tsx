@@ -112,6 +112,13 @@ export default function FeedingPage() {
         const entry = entries.find(e => e.id === entryId);
 
         if (entry && entry.entryType === 'feeding') {
+          // Check if this is an active nursing session
+          if (entry.type === 'nursing' && !entry.endTime && entry.currentStatus) {
+            // This is an active nursing session, redirect to the "new" view
+            router.replace(`/baby/${babyId}/feeding/new`);
+            return;
+          }
+          
           if (entry.type === 'bottle') {
             setActiveTab('bottle');
             setBottleStartTime(new Date(entry.startTime || entry.time));
@@ -120,7 +127,7 @@ export default function FeedingPage() {
             setAmountUnit((entry.amountUnit || 'oz') as "oz" | "ml");
             setNotes(entry.notes || '');
           } else {
-            // Nursing entry
+            // Nursing entry (completed)
             setActiveTab('nursing');
             setNursingStartTime(new Date(entry.startTime || entry.time));
             setLeftDuration(entry.leftDuration || 0);
