@@ -7,7 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { UserButton } from "@clerk/nextjs";
 import {
   Baby,
-  Home,
+  Activity,
   History,
   Settings,
   Menu,
@@ -52,13 +52,13 @@ function getBabyIdFromPath(pathname: string): string | null {
 function getNavItems(babyId: string | null) {
   if (babyId) {
     return [
-      { href: `/baby/${babyId}`, icon: Home, label: "Home" },
+      { href: `/baby/${babyId}`, icon: Activity, label: "Track" },
       { href: `/baby/${babyId}/history`, icon: History, label: "History" },
       { href: "/settings", icon: Settings, label: "Settings" },
     ];
   }
   return [
-    { href: "/", icon: Home, label: "Home" },
+    { href: "/", icon: Activity, label: "Track" },
     { href: "/settings", icon: Settings, label: "Settings" },
   ];
 }
