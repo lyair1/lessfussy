@@ -111,7 +111,7 @@ export default function RootLayout({
             storageKey="lessfussy-theme"
           >
             {children}
-            <Toaster position="top-center" richColors />
+            <Toaster position="bottom-left" richColors />
           </ThemeProvider>
         </body>
       </html>
