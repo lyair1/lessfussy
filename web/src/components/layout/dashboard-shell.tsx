@@ -19,6 +19,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -53,13 +54,11 @@ function getNavItems(babyId: string | null) {
     return [
       { href: `/baby/${babyId}`, icon: Home, label: "Home" },
       { href: `/baby/${babyId}/history`, icon: History, label: "History" },
-      { href: "/babies", icon: Baby, label: "Babies" },
       { href: "/settings", icon: Settings, label: "Settings" },
     ];
   }
   return [
     { href: "/", icon: Home, label: "Home" },
-    { href: "/babies", icon: Baby, label: "Babies" },
     { href: "/settings", icon: Settings, label: "Settings" },
   ];
 }
@@ -214,6 +213,13 @@ export function DashboardShell({ user, babies, children }: DashboardShellProps) 
                         )}
                       </DropdownMenuItem>
                     ))}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <Link href="/babies" className="flex items-center gap-2">
+                        <Baby className="h-4 w-4" />
+                        <span>Manage Babies</span>
+                      </Link>
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
