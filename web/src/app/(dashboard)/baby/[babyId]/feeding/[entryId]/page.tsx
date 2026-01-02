@@ -54,6 +54,7 @@ export default function FeedingPage() {
 
   // Tab state
   const [activeTab, setActiveTab] = useState<FeedingTab>("nursing");
+  const [originalFeedingType, setOriginalFeedingType] = useState<FeedingTab | null>(null);
 
   // Nursing state
   const [lastSide, setLastSide] = useState<NursingSide | null>(null);
@@ -122,6 +123,7 @@ export default function FeedingPage() {
           
           if (entry.type === 'bottle') {
             setActiveTab('bottle');
+            setOriginalFeedingType('bottle');
             setBottleStartTime(new Date(entry.startTime || entry.time));
             setBottleContent(entry.bottleContent || 'breast_milk');
             setAmount(entry.amount || 4);
@@ -130,6 +132,7 @@ export default function FeedingPage() {
           } else {
             // Nursing entry (completed)
             setActiveTab('nursing');
+            setOriginalFeedingType('nursing');
             setNursingStartTime(new Date(entry.startTime || entry.time));
             setNursingEndTime(entry.endTime ? new Date(entry.endTime) : null);
             setLeftDuration(entry.leftDuration || 0);
@@ -760,18 +763,26 @@ export default function FeedingPage() {
       {/* Tabs */}
       <Tabs
         value={activeTab}
-        onValueChange={(v) => setActiveTab(v as FeedingTab)}
+        onValueChange={(v) => {
+          // In edit mode, prevent switching between nursing and bottle
+          if (isEditMode && originalFeedingType && originalFeedingType !== v) {
+            return;
+          }
+          setActiveTab(v as FeedingTab);
+        }}
         className="w-full"
       >
         <TabsList className="grid w-full grid-cols-2 mb-6">
           <TabsTrigger
             value="nursing"
+            disabled={isEditMode && originalFeedingType === 'bottle'}
             className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
           >
             Nursing
           </TabsTrigger>
           <TabsTrigger
             value="bottle"
+            disabled={isEditMode && originalFeedingType === 'nursing'}
             className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
           >
             Bottle
