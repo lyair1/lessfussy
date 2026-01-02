@@ -227,6 +227,15 @@ export function TrackingGrid({
       } else if (type.id === "pumping" && !(lastEntry as any).endTime) {
         lastTimeText = "Pumping...";
         isActive = true;
+      } else if (type.id === "sleep" && !(lastEntry as any).endTime) {
+        // Active sleep session - calculate duration
+        const durationSeconds = Math.floor(
+          (new Date().getTime() -
+            new Date((lastEntry as any).startTime).getTime()) /
+            1000
+        );
+        lastTimeText = `Sleeping for ${formatDuration(durationSeconds)}`;
+        isActive = true;
       }
       // Calculate duration for completed feeding and sleep
       else if (type.id === "feeding" && (lastEntry as any).endTime) {
