@@ -63,6 +63,7 @@ export default function FeedingPage() {
   const [pausedDuration, setPausedDuration] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [nursingStartTime, setNursingStartTime] = useState<Date | null>(null);
+  const [nursingEndTime, setNursingEndTime] = useState<Date | null>(null);
 
   // Bottle state
   const [bottleContent, setBottleContent] =
@@ -130,6 +131,7 @@ export default function FeedingPage() {
             // Nursing entry (completed)
             setActiveTab('nursing');
             setNursingStartTime(new Date(entry.startTime || entry.time));
+            setNursingEndTime(entry.endTime ? new Date(entry.endTime) : null);
             setLeftDuration(entry.leftDuration || 0);
             setRightDuration(entry.rightDuration || 0);
             setPausedDuration(entry.pausedDuration || 0);
@@ -353,11 +355,13 @@ export default function FeedingPage() {
     endTime?: Date
   ) => {
     try {
+      // When editing, pass the entry ID to exclude it from conflict checking
       const conflictResult = await getActivityConflicts(
         babyId,
         activityType,
         startTime,
-        endTime
+        endTime,
+        isEditMode ? entryId : undefined
       );
 
       if (conflictResult.hasConflicts) {
@@ -522,6 +526,47 @@ export default function FeedingPage() {
     }
   };
 
+  const handleEditModeTimeChange = (
+    type: "start" | "end",
+    newTime: Date
+  ) => {
+    if (!nursingStartTime || !nursingEndTime) return;
+
+    if (type === "start") {
+      setNursingStartTime(newTime);
+      // Recalculate durations based on new start time
+      const newTotalSeconds = Math.floor(
+        (nursingEndTime.getTime() - newTime.getTime()) / 1000
+      );
+      const oldTotalSeconds = leftDuration + rightDuration;
+
+      if (newTotalSeconds > 0 && oldTotalSeconds > 0) {
+        const ratio = newTotalSeconds / oldTotalSeconds;
+        setLeftDuration(Math.floor(leftDuration * ratio));
+        setRightDuration(Math.floor(rightDuration * ratio));
+      } else if (newTotalSeconds <= 0) {
+        // Start time is after end time, keep end time but show warning
+        toast.error("Start time must be before end time");
+      }
+    } else {
+      setNursingEndTime(newTime);
+      // Recalculate durations based on new end time
+      const newTotalSeconds = Math.floor(
+        (newTime.getTime() - nursingStartTime.getTime()) / 1000
+      );
+      const oldTotalSeconds = leftDuration + rightDuration;
+
+      if (newTotalSeconds > 0 && oldTotalSeconds > 0) {
+        const ratio = newTotalSeconds / oldTotalSeconds;
+        setLeftDuration(Math.floor(leftDuration * ratio));
+        setRightDuration(Math.floor(rightDuration * ratio));
+      } else if (newTotalSeconds <= 0) {
+        // End time is before start time, show warning
+        toast.error("End time must be after start time");
+      }
+    }
+  };
+
   const handleSaveNursing = async () => {
     if (!babyId) {
       toast.error("Baby not found");
@@ -534,7 +579,7 @@ export default function FeedingPage() {
     }
 
     const startTime = nursingStartTime || new Date();
-    const endTime = new Date();
+    const endTime = isEditMode ? (nursingEndTime || new Date()) : new Date();
 
     await checkConflictsAndProceed(
       "feeding",
@@ -741,14 +786,14 @@ export default function FeedingPage() {
               <DateTimeRow
                 label="Start Time"
                 value={nursingStartTime || new Date()}
-                onChange={setNursingStartTime}
+                onChange={(newTime) => handleEditModeTimeChange("start", newTime)}
               />
 
               {/* End Time for edit mode */}
               <DateTimeRow
                 label="End Time"
-                value={new Date()} // This would need to be loaded from the entry
-                onChange={() => {}} // Would need proper end time handling
+                value={nursingEndTime || new Date()}
+                onChange={(newTime) => handleEditModeTimeChange("end", newTime)}
               />
             </>
           )}

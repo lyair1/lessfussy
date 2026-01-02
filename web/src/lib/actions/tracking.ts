@@ -44,15 +44,16 @@ async function checkAndThrowConflicts(
   activityType: ActivityType,
   startTime?: Date,
   endTime?: Date,
-  options: { allowOverride?: boolean; babyName?: string } = {}
+  options: { allowOverride?: boolean; babyName?: string; excludeEntryId?: string } = {}
 ) {
-  const { allowOverride = false, babyName } = options;
+  const { allowOverride = false, babyName, excludeEntryId } = options;
   const conflictResult = await checkActivityConflicts(
     babyId,
     activityType,
     startTime,
     endTime,
-    babyName
+    babyName,
+    excludeEntryId
   );
 
   if (conflictResult.hasConflicts) {
@@ -981,7 +982,8 @@ export async function getActivityConflicts(
   babyId: string,
   activityType: ActivityType,
   startTime?: Date,
-  endTime?: Date
+  endTime?: Date,
+  excludeEntryId?: string
 ) {
   const baby = await checkBabyAccess(babyId);
   return await checkActivityConflicts(
@@ -989,7 +991,8 @@ export async function getActivityConflicts(
     activityType,
     startTime,
     endTime,
-    baby.name
+    baby.name,
+    excludeEntryId
   );
 }
 

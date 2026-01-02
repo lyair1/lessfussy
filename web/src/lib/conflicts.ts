@@ -91,17 +91,46 @@ export async function checkActivityConflicts(
   newActivityType: ActivityType,
   startTime?: Date,
   endTime?: Date,
-  babyName?: string
+  babyName?: string,
+  excludeEntryId?: string
 ): Promise<ConflictCheckResult> {
   const conflicts: Conflict[] = [];
-  const activeActivities = await getActiveActivities(babyId);
+  let activeActivities = await getActiveActivities(babyId);
+  
+  // Exclude the current entry if we're editing
+  if (excludeEntryId) {
+    activeActivities = activeActivities.filter(active => active.id !== excludeEntryId);
+  }
 
   // Check for active session conflicts
-  // Skip this check for pumping since it's a wildcard activity that can happen anytime
-  if (ACTIVITIES_WITH_ACTIVE_SESSIONS.has(newActivityType) && newActivityType !== "pumping") {
-    const conflictingActives = activeActivities.filter(active =>
-      active.type !== newActivityType && active.type !== "pumping" // Can't have two of the same type active, but pumping can run with anything
-    );
+  // Skip this check if:
+  // - We're editing (excludeEntryId is provided) AND the session has an endTime (it's completed)
+  // - The activity is pumping (wildcard activity that can happen anytime)
+  const isEditingCompletedSession = excludeEntryId && endTime;
+  if (!isEditingCompletedSession && ACTIVITIES_WITH_ACTIVE_SESSIONS.has(newActivityType) && newActivityType !== "pumping") {
+    // Only flag as conflict if there's actual time overlap
+    const conflictingActives = activeActivities.filter(active => {
+      // Skip same type and pumping
+      if (active.type === newActivityType || active.type === "pumping") {
+        return false;
+      }
+      
+      // If we have a time range, check for actual overlap
+      if (startTime && endTime) {
+        // Active session started before our end time - potential overlap
+        return active.startTime < endTime;
+      }
+      
+      // If we only have start time, check if active session overlaps
+      if (startTime) {
+        // For active sessions (no end time), check if they started before our start time
+        // This means they could still be active when we want to start
+        return active.startTime <= startTime;
+      }
+      
+      // Default: consider it a conflict
+      return true;
+    });
 
     if (conflictingActives.length > 0) {
       conflicts.push({
@@ -118,7 +147,18 @@ export async function checkActivityConflicts(
   if (conflicts.length === 0) {
     const logicalConflicts = activeActivities.filter(active => {
       const exclusiveWith = MUTUALLY_EXCLUSIVE[newActivityType as keyof typeof MUTUALLY_EXCLUSIVE] as readonly ActivityType[] | undefined;
-      return exclusiveWith?.includes(active.type);
+      if (!exclusiveWith?.includes(active.type)) {
+        return false;
+      }
+      
+      // If we have time information, check for actual overlap
+      if (startTime && endTime) {
+        // Only flag as conflict if the active session started before our end time
+        return active.startTime < endTime;
+      }
+      
+      // If no end time, both are active, so they conflict
+      return true;
     });
 
     if (logicalConflicts.length > 0) {
@@ -133,7 +173,7 @@ export async function checkActivityConflicts(
 
   // For past events, check if they would conflict with activities that were active at that time
   if (startTime && startTime < new Date()) {
-    const pastConflicts = await checkPastEventConflicts(babyId, newActivityType, startTime, endTime, babyName);
+    const pastConflicts = await checkPastEventConflicts(babyId, newActivityType, startTime, endTime, babyName, excludeEntryId);
     conflicts.push(...pastConflicts);
   }
 
@@ -151,7 +191,8 @@ async function checkPastEventConflicts(
   newActivityType: ActivityType,
   startTime: Date,
   endTime?: Date,
-  babyName?: string
+  babyName?: string,
+  excludeEntryId?: string
 ): Promise<Conflict[]> {
   const conflicts: Conflict[] = [];
 
@@ -163,40 +204,38 @@ async function checkPastEventConflicts(
   // Check for activities that were active during this time period
   const checkTime = endTime || startTime;
 
-  // Get all activities that were active during this period
+  // Get all activities that are currently active (no endTime)
+  // We'll filter for time overlap after
   const [
     activeFeedings,
     activeSleeps,
     activePumpings,
   ] = await Promise.all([
-    // Find feeding sessions that overlap with the new activity time
+    // Find all active feeding sessions
     db.query.feedings.findMany({
       where: and(
         eq(feedings.babyId, babyId),
         eq(feedings.type, "nursing"),
         isNull(feedings.endTime), // Still active
-        gte(feedings.startTime, startTime), // Started before or at the check time
       ),
     }),
-    // Find sleep sessions that overlap
+    // Find all active sleep sessions
     db.query.sleepLogs.findMany({
       where: and(
         eq(sleepLogs.babyId, babyId),
         isNull(sleepLogs.endTime), // Still active
-        gte(sleepLogs.startTime, startTime),
       ),
     }),
-    // Find pumping sessions that overlap
+    // Find all active pumping sessions
     db.query.pumpings.findMany({
       where: and(
         eq(pumpings.babyId, babyId),
         isNull(pumpings.endTime), // Still active
-        gte(pumpings.startTime, startTime),
       ),
     }),
   ]);
 
-  const pastActiveActivities: ActiveActivity[] = [
+  let pastActiveActivities: ActiveActivity[] = [
     ...activeFeedings.map(f => ({
       id: f.id,
       type: "feeding" as ActivityType,
@@ -216,6 +255,27 @@ async function checkPastEventConflicts(
       description: `Pumping session active since ${p.startTime.toLocaleTimeString()}`,
     })),
   ];
+
+  // Exclude the current entry if we're editing
+  if (excludeEntryId) {
+    pastActiveActivities = pastActiveActivities.filter(active => active.id !== excludeEntryId);
+  }
+
+  // Filter to only activities that actually overlap in time
+  if (endTime) {
+    // If we have an end time, check if the active session started before our end time
+    // This means: active session is still ongoing AND it started before our activity ended
+    pastActiveActivities = pastActiveActivities.filter(active => 
+      active.startTime < endTime
+    );
+  } else {
+    // If we don't have an end time (still active), check if the active session started before now
+    // Since both sessions are active, they would overlap
+    const now = new Date();
+    pastActiveActivities = pastActiveActivities.filter(active => 
+      active.startTime < now
+    );
+  }
 
   // Check for logical conflicts with past active activities
   const logicalConflicts = pastActiveActivities.filter(active => {
