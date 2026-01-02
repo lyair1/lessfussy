@@ -75,10 +75,12 @@ export default function SleepPage() {
   const babyId = params.babyId as string;
   const entryId = params.entryId as string;
 
-  const isEditMode = !!entryId && entryId !== 'new';
+  const isEditMode = !!entryId && entryId !== "new";
 
   const [isTimerRunning, setIsTimerRunning] = useState(false);
-  const [startTime, setStartTime] = useState<Date | null>(null);
+  const [startTime, setStartTime] = useState<Date | null>(
+    entryId === "new" ? new Date() : null
+  );
   const [endTime, setEndTime] = useState<Date | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [activeSleepId, setActiveSleepId] = useState<string | null>(null);
@@ -100,7 +102,9 @@ export default function SleepPage() {
   // Conflict handling
   const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
   const [pendingConflicts, setPendingConflicts] = useState<Conflict[]>([]);
-  const [pendingAction, setPendingAction] = useState<(() => Promise<void>) | null>(null);
+  const [pendingAction, setPendingAction] = useState<
+    (() => Promise<void>) | null
+  >(null);
 
   // Load entry data if in edit mode
   useEffect(() => {
@@ -110,10 +114,10 @@ export default function SleepPage() {
       setLoadingEntry(true);
       try {
         const { getTimelineEntries } = await import("@/lib/actions/tracking");
-        const entries = await getTimelineEntries(babyId, '7d');
-        const entry = entries.find(e => e.id === entryId);
+        const entries = await getTimelineEntries(babyId, "7d");
+        const entry = entries.find((e) => e.id === entryId);
 
-        if (entry && entry.entryType === 'sleep') {
+        if (entry && entry.entryType === "sleep") {
           setStartTime(new Date(entry.startTime || entry.time));
           setActiveSleepId(entry.id);
 
@@ -122,7 +126,9 @@ export default function SleepPage() {
             setEndTime(new Date(entry.endTime));
             const start = new Date(entry.startTime || entry.time);
             const end = new Date(entry.endTime);
-            const elapsed = Math.floor((end.getTime() - start.getTime()) / 1000);
+            const elapsed = Math.floor(
+              (end.getTime() - start.getTime()) / 1000
+            );
             setElapsedSeconds(elapsed);
           }
 
@@ -134,8 +140,8 @@ export default function SleepPage() {
           setNotes(entry.notes || "");
         }
       } catch (error) {
-        console.error('Failed to load entry:', error);
-        toast.error('Failed to load entry');
+        console.error("Failed to load entry:", error);
+        toast.error("Failed to load entry");
       } finally {
         setLoadingEntry(false);
       }
@@ -202,6 +208,14 @@ export default function SleepPage() {
       return;
     }
 
+    // If continuing an existing session, just clear end time and restart timer
+    if (activeSleepId && endTime) {
+      setEndTime(null);
+      setIsTimerRunning(true);
+      toast.success("Sleep tracking resumed");
+      return;
+    }
+
     const now = new Date();
 
     await checkConflictsAndProceed(
@@ -211,13 +225,16 @@ export default function SleepPage() {
         setIsTimerRunning(true);
 
         try {
-          const result = await createSleepLog({
-            babyId,
-            startTime: now,
-            startMood: startMood || undefined,
-            fallAsleepTime: fallAsleepTime || undefined,
-            sleepMethod: sleepMethod || undefined,
-          }, { allowOverride: true });
+          const result = await createSleepLog(
+            {
+              babyId,
+              startTime: now,
+              startMood: startMood || undefined,
+              fallAsleepTime: fallAsleepTime || undefined,
+              sleepMethod: sleepMethod || undefined,
+            },
+            { allowOverride: true }
+          );
           setActiveSleepId(result.id);
           toast.success("Sleep tracking started");
         } catch (error) {
@@ -231,7 +248,14 @@ export default function SleepPage() {
     );
   };
 
-  const handleStop = async () => {
+  const handleStop = () => {
+    // Just stop the timer and set end time - don't save yet
+    const finalEndTime = new Date();
+    setEndTime(finalEndTime);
+    setIsTimerRunning(false);
+  };
+
+  const handleSave = async () => {
     if (!babyId || !activeSleepId) return;
 
     setSaving(true);
@@ -260,57 +284,6 @@ export default function SleepPage() {
           notes: notes || undefined,
         });
         toast.success("Sleep logged!");
-        router.push(`/baby/${babyId}`);
-      }
-    } catch (error) {
-      toast.error("Failed to save sleep");
-      console.error(error);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDirectSave = async () => {
-    if (!babyId) {
-      toast.error("Baby not found");
-      return;
-    }
-
-    if (!startTime) {
-      toast.error("Please set a start time");
-      return;
-    }
-
-    setSaving(true);
-    try {
-      if (isEditMode && activeSleepId) {
-        // Update existing entry
-        await updateSleepLog(activeSleepId, babyId, {
-          startTime: startTime,
-          endTime: endTime || undefined,
-          startMood: startMood || undefined,
-          endMood: endMood || undefined,
-          fallAsleepTime: fallAsleepTime || undefined,
-          sleepMethod: sleepMethod || undefined,
-          wokeUpChild,
-          notes: notes || undefined,
-        });
-        toast.success("Sleep updated!");
-        router.push(`/baby/${babyId}`);
-      } else {
-        // Create new entry
-        await createSleepLog({
-          babyId,
-          startTime: startTime,
-          endTime: endTime || undefined,
-          startMood: startMood || undefined,
-          endMood: endMood || undefined,
-          fallAsleepTime: fallAsleepTime || undefined,
-          sleepMethod: sleepMethod || undefined,
-          wokeUpChild,
-          notes: notes || undefined,
-        }, { allowOverride: true });
-        toast.success("Sleep saved!");
         router.push(`/baby/${babyId}`);
       }
     } catch (error) {
@@ -356,13 +329,16 @@ export default function SleepPage() {
           setIsTimerRunning(true);
 
           try {
-            const result = await createSleepLog({
-              babyId,
-              startTime: newStartTime,
-              startMood: startMood || undefined,
-              fallAsleepTime: fallAsleepTime || undefined,
-              sleepMethod: sleepMethod || undefined,
-            }, { allowOverride: true });
+            const result = await createSleepLog(
+              {
+                babyId,
+                startTime: newStartTime,
+                startMood: startMood || undefined,
+                fallAsleepTime: fallAsleepTime || undefined,
+                sleepMethod: sleepMethod || undefined,
+              },
+              { allowOverride: true }
+            );
             setActiveSleepId(result.id);
             toast.success("Sleep tracking started");
           } catch (error) {
@@ -386,7 +362,12 @@ export default function SleepPage() {
     endTime?: Date
   ) => {
     try {
-      const conflictResult = await getActivityConflicts(babyId, activityType, startTime, endTime);
+      const conflictResult = await getActivityConflicts(
+        babyId,
+        activityType,
+        startTime,
+        endTime
+      );
 
       if (conflictResult.hasConflicts) {
         setPendingConflicts(conflictResult.conflicts);
@@ -410,8 +391,11 @@ export default function SleepPage() {
     try {
       // Special case: sleep conflicting with feeding -> stop feeding first, then start sleep
       const hasFeedingConflict = pendingConflicts.some(
-        conflict => conflict.type === "active_conflict" &&
-        conflict.conflictingActivities.some(activity => activity.type === "feeding")
+        (conflict) =>
+          conflict.type === "active_conflict" &&
+          conflict.conflictingActivities.some(
+            (activity) => activity.type === "feeding"
+          )
       );
 
       if (hasFeedingConflict) {
@@ -424,7 +408,9 @@ export default function SleepPage() {
             leftDuration: activeFeeding.leftDuration || 0,
             rightDuration: activeFeeding.rightDuration || 0,
             pausedDuration: activeFeeding.pausedDuration || 0,
-            notes: activeFeeding.notes ? `${activeFeeding.notes} (Auto-completed when starting sleep)` : "Auto-completed when starting sleep session"
+            notes: activeFeeding.notes
+              ? `${activeFeeding.notes} (Auto-completed when starting sleep)`
+              : "Auto-completed when starting sleep session",
           });
           toast.success("Nursing session completed");
         }
@@ -434,7 +420,11 @@ export default function SleepPage() {
       await pendingAction();
     } catch (error) {
       console.error("Failed to execute pending action:", error);
-      toast.error(`Failed to save: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      toast.error(
+        `Failed to save: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
     } finally {
       setPendingAction(null);
       setPendingConflicts([]);
@@ -460,7 +450,17 @@ export default function SleepPage() {
     }
   };
 
-  const handleCancel = () => {
+  const handleCancel = async () => {
+    // If there's an active session that was stopped, delete it
+    if (activeSleepId && !isEditMode) {
+      try {
+        await deleteSleepLog(activeSleepId, babyId);
+        toast.success("Sleep session discarded");
+      } catch (error) {
+        console.error("Failed to delete sleep session:", error);
+        // Still navigate away even if deletion fails
+      }
+    }
     router.push(`/baby/${babyId}`);
   };
 
@@ -494,11 +494,13 @@ export default function SleepPage() {
           onChange={handleStartTimeChange}
         />
 
-        <DateTimeRow
-          label="End Time (optional)"
-          value={endTime || startTime || new Date()}
-          onChange={setEndTime}
-        />
+        {!isTimerRunning && (
+          <DateTimeRow
+            label="End Time (optional)"
+            value={endTime || startTime || new Date()}
+            onChange={setEndTime}
+          />
+        )}
 
         {/* Timer Display */}
         <div className="flex flex-col items-center py-8">
@@ -518,19 +520,7 @@ export default function SleepPage() {
 
         {/* Main Action Button */}
         <div className="flex justify-center">
-          {startTime && endTime && !isTimerRunning ? (
-            // Direct save when both times are set
-            <button
-              onClick={handleDirectSave}
-              disabled={saving}
-              className="w-40 h-40 rounded-full flex flex-col items-center justify-center gap-2 bg-green-600 text-white hover:bg-green-700 transition-all border-4 border-dashed border-green-500"
-            >
-              <Square className="h-10 w-10" />
-              <span className="font-bold text-lg">
-                {saving ? "SAVING..." : "SAVE"}
-              </span>
-            </button>
-          ) : !isTimerRunning ? (
+          {!isTimerRunning && !activeSleepId ? (
             <button
               onClick={handleStart}
               disabled={!startTime}
@@ -539,16 +529,23 @@ export default function SleepPage() {
               <Play className="h-12 w-12" />
               <span className="font-bold text-lg">START</span>
             </button>
-          ) : (
+          ) : isTimerRunning ? (
             <button
               onClick={handleStop}
               disabled={saving}
               className="w-40 h-40 rounded-full flex flex-col items-center justify-center gap-2 bg-cyan text-cyan-foreground hover:bg-cyan/90 transition-all border-4 border-dashed border-cyan/50 timer-pulse"
             >
               <Square className="h-10 w-10" />
-              <span className="font-bold text-lg">
-                {saving ? "SAVING..." : "STOP"}
-              </span>
+              <span className="font-bold text-lg">STOP</span>
+            </button>
+          ) : (
+            <button
+              onClick={handleStart}
+              disabled={!startTime}
+              className="w-40 h-40 rounded-full flex flex-col items-center justify-center gap-2 bg-cyan text-cyan-foreground hover:bg-cyan/90 transition-all border-4 border-dashed border-cyan/50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Play className="h-12 w-12" />
+              <span className="font-bold text-lg">CONTINUE</span>
             </button>
           )}
         </div>
@@ -566,42 +563,30 @@ export default function SleepPage() {
         </div>
 
         {/* Action Buttons */}
-        {(isEditMode || (startTime && endTime)) && (
+        {(isEditMode || (activeSleepId && endTime && !isTimerRunning)) && (
           <div className="flex gap-3">
-            {!isEditMode && (
+            <Button
+              variant="outline"
+              className="flex-1 h-14 text-lg rounded-full"
+              onClick={handleCancel}
+              disabled={saving}
+            >
+              Discard
+            </Button>
+            {isEditMode && (
               <Button
-                variant="outline"
+                variant="destructive"
                 className="flex-1 h-14 text-lg rounded-full"
-                onClick={handleCancel}
+                onClick={handleDelete}
                 disabled={saving}
               >
-                Cancel
+                Delete
               </Button>
-            )}
-            {isEditMode && (
-              <>
-                <Button
-                  variant="outline"
-                  className="flex-1 h-14 text-lg rounded-full"
-                  onClick={handleCancel}
-                  disabled={saving}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="destructive"
-                  className="flex-1 h-14 text-lg rounded-full"
-                  onClick={handleDelete}
-                  disabled={saving}
-                >
-                  Delete
-                </Button>
-              </>
             )}
             <Button
               className="flex-1 h-14 text-lg rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
-              onClick={startTime && endTime ? handleDirectSave : handleStop}
-              disabled={saving || (!startTime)}
+              onClick={handleSave}
+              disabled={saving || !startTime}
             >
               {saving ? "Saving..." : "Save"}
             </Button>
@@ -743,8 +728,10 @@ export default function SleepPage() {
         onConfirm={handleConflictConfirm}
         onCancel={handleConflictCancel}
         onGoToActivity={(activityType) => {
-          if (activityType === "feeding") router.push(`/baby/${babyId}/feeding/new`);
-          if (activityType === "pumping") router.push(`/baby/${babyId}/pumping/new`);
+          if (activityType === "feeding")
+            router.push(`/baby/${babyId}/feeding/new`);
+          if (activityType === "pumping")
+            router.push(`/baby/${babyId}/pumping/new`);
           // For sleep conflicts, stay on current page
         }}
         loading={saving}
