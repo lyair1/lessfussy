@@ -19,6 +19,7 @@ const isPublicRoute = createRouteMatcher([
 const isProtectedRoute = createRouteMatcher([
   "/baby(.*)",
   "/babies(.*)",
+  "/dashboard(.*)",
   "/history(.*)",
   "/settings(.*)",
   "/track(.*)",
@@ -39,5 +40,3 @@ export const config = {
     "/(api|trpc)(.*)",
   ],
 };
-
-

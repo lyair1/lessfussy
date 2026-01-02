@@ -35,7 +35,7 @@ export default function SignInPage() {
           </p>
         </div>
         <SignIn
-          forceRedirectUrl="/babies"
+          forceRedirectUrl="/dashboard"
           appearance={{
             elements: {
               formButtonPrimary:

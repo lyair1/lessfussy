@@ -14,19 +14,62 @@ export default function SignUpPage() {
               aria-hidden="true"
             >
               {/* Baby face */}
-              <circle cx="50" cy="50" r="45" fill="currentColor" opacity="0.15" />
-              <circle cx="50" cy="50" r="40" fill="none" stroke="currentColor" strokeWidth="4" />
+              <circle
+                cx="50"
+                cy="50"
+                r="45"
+                fill="currentColor"
+                opacity="0.15"
+              />
+              <circle
+                cx="50"
+                cy="50"
+                r="40"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
               {/* Happy closed eyes (sleeping/content) */}
-              <path d="M30 42 Q35 48 40 42" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
-              <path d="M60 42 Q65 48 70 42" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+              <path
+                d="M30 42 Q35 48 40 42"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="4"
+                strokeLinecap="round"
+              />
+              <path
+                d="M60 42 Q65 48 70 42"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="4"
+                strokeLinecap="round"
+              />
               {/* Rosy cheeks */}
               <circle cx="25" cy="55" r="6" fill="currentColor" opacity="0.3" />
               <circle cx="75" cy="55" r="6" fill="currentColor" opacity="0.3" />
               {/* Big content smile */}
-              <path d="M35 60 Q50 78 65 60" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+              <path
+                d="M35 60 Q50 78 65 60"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="4"
+                strokeLinecap="round"
+              />
               {/* Tiny hair curl */}
-              <path d="M50 10 Q55 5 52 15" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-              <path d="M45 12 Q40 6 44 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              <path
+                d="M50 10 Q55 5 52 15"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                strokeLinecap="round"
+              />
+              <path
+                d="M45 12 Q40 6 44 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
             </svg>
             <h1 className="text-3xl font-bold text-primary">LessFussy</h1>
           </div>
@@ -35,7 +78,7 @@ export default function SignUpPage() {
           </p>
         </div>
         <SignUp
-          forceRedirectUrl="/babies"
+          forceRedirectUrl="/dashboard"
           appearance={{
             elements: {
               formButtonPrimary:
@@ -55,4 +98,3 @@ export default function SignUpPage() {
     </div>
   );
 }
-
