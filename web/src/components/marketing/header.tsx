@@ -91,7 +91,7 @@ export function MarketingHeader() {
 
         {/* Mobile Menu */}
         {isMenuOpen && (
-          <div className="md:hidden py-4 border-t border-border">
+          <div className="md:hidden py-4 border-t border-border bg-background">
             <nav className="flex flex-col gap-4">
               {navLinks.map((link) => (
                 <Link
