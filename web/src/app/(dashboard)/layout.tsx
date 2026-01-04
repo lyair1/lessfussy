@@ -1,18 +1,17 @@
 import * as React from "react";
 import { redirect } from "next/navigation";
-import { auth } from "@clerk/nextjs/server";
 import { ensureUserExists } from "@/lib/actions/users";
 import { getBabies } from "@/lib/actions/babies";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
+import { getUser } from "@/lib/supabase/auth";
 
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { userId } = await auth();
-
-  if (!userId) {
+  const authUser = await getUser();
+  if (!authUser) {
     redirect("/sign-in");
   }
 
@@ -26,4 +25,3 @@ export default async function DashboardLayout({
     </DashboardShell>
   );
 }
-

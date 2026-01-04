@@ -42,7 +42,7 @@ export default function PumpingPage() {
   const babyId = params.babyId as string;
   const entryId = params.entryId as string;
 
-  const isEditMode = !!entryId && entryId !== 'new';
+  const isEditMode = !!entryId && entryId !== "new";
 
   // Start time - always editable, defaults to now for new sessions
   const [startTime, setStartTime] = useState<Date>(new Date());
@@ -60,7 +60,9 @@ export default function PumpingPage() {
   // Conflict handling
   const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
   const [pendingConflicts, setPendingConflicts] = useState<any[]>([]);
-  const [pendingAction, setPendingAction] = useState<(() => Promise<void>) | null>(null);
+  const [pendingAction, setPendingAction] = useState<
+    (() => Promise<void>) | null
+  >(null);
 
   // Timer state
   const [timerActive, setTimerActive] = useState(false); // Whether a timer session is active
@@ -80,17 +82,20 @@ export default function PumpingPage() {
       setLoadingEntry(true);
       try {
         const { getTimelineEntries } = await import("@/lib/actions/tracking");
-        const entries = await getTimelineEntries(babyId, '7d');
-        const entry = entries.find(e => e.id === entryId);
+        const entries = await getTimelineEntries(babyId, "7d");
+        const entry = entries.find((e) => e.id === entryId);
 
-        if (entry && entry.entryType === 'pumping') {
-          setStartTime(new Date(entry.startTime || entry.time));
+        if (entry && entry.entryType === "pumping") {
+          const start = entry.startTime || entry.time;
+          setStartTime(new Date(start));
 
           // Calculate duration if there's an end time
           if (entry.endTime && entry.startTime) {
-            const start = new Date(entry.startTime);
-            const end = new Date(entry.endTime);
-            const duration = Math.floor((end.getTime() - start.getTime()) / 1000);
+            const startDate = new Date(entry.startTime);
+            const endDate = new Date(entry.endTime);
+            const duration = Math.floor(
+              (endDate.getTime() - startDate.getTime()) / 1000
+            );
             setAccumulatedSeconds(duration);
             setDisplaySeconds(duration);
           }
@@ -109,8 +114,8 @@ export default function PumpingPage() {
           setActivePumpingId(entry.id);
         }
       } catch (error) {
-        console.error('Failed to load entry:', error);
-        toast.error('Failed to load entry');
+        console.error("Failed to load entry:", error);
+        toast.error("Failed to load entry");
       } finally {
         setLoadingEntry(false);
       }
@@ -248,7 +253,12 @@ export default function PumpingPage() {
     endTime?: Date
   ) => {
     try {
-      const conflictResult = await getActivityConflicts(babyId, activityType, startTime, endTime);
+      const conflictResult = await getActivityConflicts(
+        babyId,
+        activityType,
+        startTime,
+        endTime
+      );
 
       if (conflictResult.hasConflicts) {
         setPendingConflicts(conflictResult.conflicts);
@@ -301,18 +311,22 @@ export default function PumpingPage() {
 
         // Immediately persist to DB
         try {
-          const result = await startOrUpdateActivePumping({
-            babyId,
-            startTime: now,
-            duration: 0,
-            currentStatus: "running",
-            leftAmount: amountMode === "left_right" ? leftAmount : undefined,
-            rightAmount: amountMode === "left_right" ? rightAmount : undefined,
-            totalAmount:
-              amountMode === "total" ? totalAmount : leftAmount + rightAmount,
-            amountUnit,
-            notes: notes || undefined,
-          }, { allowOverride: true });
+          const result = await startOrUpdateActivePumping(
+            {
+              babyId,
+              startTime: now,
+              duration: 0,
+              currentStatus: "running",
+              leftAmount: amountMode === "left_right" ? leftAmount : undefined,
+              rightAmount:
+                amountMode === "left_right" ? rightAmount : undefined,
+              totalAmount:
+                amountMode === "total" ? totalAmount : leftAmount + rightAmount,
+              amountUnit,
+              notes: notes || undefined,
+            },
+            { allowOverride: true }
+          );
           setActivePumpingId(result.id);
           toast.success("Pumping session started");
         } catch (error) {
@@ -777,10 +791,7 @@ export default function PumpingPage() {
         )}
 
         {/* Dismiss Confirmation Dialog */}
-        <Dialog
-          open={showDismissConfirm}
-          onOpenChange={setShowDismissConfirm}
-        >
+        <Dialog open={showDismissConfirm} onOpenChange={setShowDismissConfirm}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Dismiss session?</DialogTitle>
@@ -819,8 +830,10 @@ export default function PumpingPage() {
         onConfirm={handleConflictConfirm}
         onCancel={handleConflictCancel}
         onGoToActivity={(activityType) => {
-          if (activityType === "feeding") router.push(`/baby/${babyId}/feeding/new`);
-          if (activityType === "sleep") router.push(`/baby/${babyId}/sleep/new`);
+          if (activityType === "feeding")
+            router.push(`/baby/${babyId}/feeding/new`);
+          if (activityType === "sleep")
+            router.push(`/baby/${babyId}/sleep/new`);
           // For pumping conflicts, stay on current page
         }}
         loading={saving}

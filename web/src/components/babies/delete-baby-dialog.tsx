@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { deleteBaby } from "@/lib/actions/babies";
-import type { Baby } from "@/lib/db/schema";
+import type { Baby } from "@/lib/types/db";
 
 interface DeleteBabyDialogProps {
   open: boolean;
@@ -80,5 +80,3 @@ export function DeleteBabyDialog({
     </Dialog>
   );
 }
-
-

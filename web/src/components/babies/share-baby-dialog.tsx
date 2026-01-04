@@ -24,7 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { shareBaby } from "@/lib/actions/babies";
-import type { Baby } from "@/lib/db/schema";
+import type { Baby } from "@/lib/types/db";
 
 interface ShareBabyDialogProps {
   open: boolean;
@@ -57,7 +57,8 @@ export function ShareBabyDialog({
       setEmail("");
       router.refresh();
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Failed to share";
+      const message =
+        error instanceof Error ? error.message : "Failed to share";
       toast.error(message);
     } finally {
       setLoading(false);
@@ -95,7 +96,10 @@ export function ShareBabyDialog({
 
           <div className="space-y-2">
             <Label htmlFor="role">Permission Level</Label>
-            <Select value={role} onValueChange={(v) => setRole(v as typeof role)}>
+            <Select
+              value={role}
+              onValueChange={(v) => setRole(v as typeof role)}
+            >
               <SelectTrigger className="bg-background">
                 <SelectValue />
               </SelectTrigger>
@@ -141,4 +145,3 @@ export function ShareBabyDialog({
     </Dialog>
   );
 }
-

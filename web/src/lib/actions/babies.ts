@@ -1,82 +1,104 @@
 "use server";
 
-import { auth } from "@clerk/nextjs/server";
-import { db, babies, babyShares, users } from "@/lib/db";
-import { eq, or, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { createClient } from "@/lib/supabase/server";
+import { requireUserId } from "@/lib/supabase/auth";
+
+const babySelect =
+  "id,name,birthDate:birth_date,photoUrl:photo_url,ownerId:owner_id,createdAt:created_at,updatedAt:updated_at";
+
+const shareSelect =
+  "id,babyId:baby_id,userId:user_id,role,createdAt:created_at";
 
 export async function getBabies() {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+  const userId = await requireUserId();
+  const supabase = await createClient();
 
   // Get babies owned by user
-  const ownedBabies = await db.query.babies.findMany({
-    where: eq(babies.ownerId, userId),
-    orderBy: (babies, { desc }) => [desc(babies.createdAt)],
-  });
+  const { data: ownedBabies, error: ownedError } = await supabase
+    .from("babies")
+    .select(babySelect)
+    .eq("owner_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (ownedError) throw new Error(ownedError.message);
 
   // Get babies shared with user
-  const sharedBabyIds = await db.query.babyShares.findMany({
-    where: eq(babyShares.userId, userId),
-  });
+  const { data: shares, error: sharesError } = await supabase
+    .from("baby_shares")
+    .select(`${shareSelect},baby:babies(${babySelect})`)
+    .eq("user_id", userId);
 
-  const sharedBabies = await Promise.all(
-    sharedBabyIds.map(async (share) => {
-      const baby = await db.query.babies.findFirst({
-        where: eq(babies.id, share.babyId),
-      });
-      return baby ? { ...baby, isShared: true, role: share.role } : null;
+  if (sharesError) throw new Error(sharesError.message);
+
+  const sharedBabies = (shares ?? [])
+    .map((share) => {
+      const baby = (share as any).baby as any | null;
+      if (!baby) return null;
+      return { ...baby, isShared: true as const, role: (share as any).role };
     })
-  );
+    .filter((b): b is NonNullable<typeof b> => b !== null);
 
-  const validSharedBabies = sharedBabies.filter(
-    (b): b is NonNullable<typeof b> => b !== null
-  );
-  
   return [
-    ...ownedBabies.map((b) => ({ ...b, isShared: false, role: "owner" as const })),
-    ...validSharedBabies,
+    ...(ownedBabies ?? []).map((b) => ({
+      ...b,
+      isShared: false as const,
+      role: "owner" as const,
+    })),
+    ...sharedBabies,
   ];
 }
 
 export async function getBaby(babyId: string) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+  const userId = await requireUserId();
+  const supabase = await createClient();
 
-  const baby = await db.query.babies.findFirst({
-    where: eq(babies.id, babyId),
-  });
+  const { data: baby, error: babyError } = await supabase
+    .from("babies")
+    .select(babySelect)
+    .eq("id", babyId)
+    .maybeSingle();
+
+  if (babyError) throw new Error(babyError.message);
 
   if (!baby) return null;
 
   // Check if user has access
-  if (baby.ownerId === userId) {
+  if ((baby as any).ownerId === userId) {
     return { ...baby, role: "owner" as const };
   }
 
-  const share = await db.query.babyShares.findFirst({
-    where: and(eq(babyShares.babyId, babyId), eq(babyShares.userId, userId)),
-  });
+  const { data: share, error: shareError } = await supabase
+    .from("baby_shares")
+    .select("role")
+    .eq("baby_id", babyId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (shareError) throw new Error(shareError.message);
 
   if (share) {
-    return { ...baby, role: share.role };
+    return { ...baby, role: (share as any).role };
   }
 
   return null;
 }
 
 export async function createBaby(data: { name: string; birthDate?: string }) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+  const userId = await requireUserId();
+  const supabase = await createClient();
 
-  const [newBaby] = await db
-    .insert(babies)
-    .values({
+  const { data: newBaby, error } = await supabase
+    .from("babies")
+    .insert({
       name: data.name,
-      birthDate: data.birthDate || null,
-      ownerId: userId,
+      birth_date: data.birthDate || null,
+      owner_id: userId,
     })
-    .returning();
+    .select(babySelect)
+    .single();
+
+  if (error) throw new Error(error.message);
 
   revalidatePath("/");
   revalidatePath("/babies");
@@ -89,22 +111,29 @@ export async function updateBaby(
   babyId: string,
   data: { name?: string; birthDate?: string; photoUrl?: string }
 ) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+  await requireUserId();
+  const supabase = await createClient();
 
   const baby = await getBaby(babyId);
   if (!baby || baby.role !== "owner") {
     throw new Error("Not authorized to update this baby");
   }
 
-  const [updatedBaby] = await db
-    .update(babies)
-    .set({
-      ...data,
-      updatedAt: new Date(),
-    })
-    .where(eq(babies.id, babyId))
-    .returning();
+  const updateData: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  };
+  if (data.name !== undefined) updateData.name = data.name;
+  if (data.birthDate !== undefined) updateData.birth_date = data.birthDate;
+  if (data.photoUrl !== undefined) updateData.photo_url = data.photoUrl;
+
+  const { data: updatedBaby, error } = await supabase
+    .from("babies")
+    .update(updateData)
+    .eq("id", babyId)
+    .select(babySelect)
+    .single();
+
+  if (error) throw new Error(error.message);
 
   revalidatePath("/");
   revalidatePath("/babies");
@@ -114,24 +143,29 @@ export async function updateBaby(
 }
 
 export async function deleteBaby(babyId: string) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+  await requireUserId();
+  const supabase = await createClient();
 
   const baby = await getBaby(babyId);
   if (!baby || baby.role !== "owner") {
     throw new Error("Not authorized to delete this baby");
   }
 
-  await db.delete(babies).where(eq(babies.id, babyId));
+  const { error } = await supabase.from("babies").delete().eq("id", babyId);
+  if (error) throw new Error(error.message);
 
   revalidatePath("/");
   revalidatePath("/babies");
   revalidatePath(`/baby/${babyId}`);
 }
 
-export async function shareBaby(babyId: string, email: string, role: "viewer" | "editor" = "editor") {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+export async function shareBaby(
+  babyId: string,
+  email: string,
+  role: "viewer" | "editor" = "editor"
+) {
+  const userId = await requireUserId();
+  const supabase = await createClient();
 
   const baby = await getBaby(babyId);
   if (!baby || baby.role !== "owner") {
@@ -139,9 +173,13 @@ export async function shareBaby(babyId: string, email: string, role: "viewer" | 
   }
 
   // Find user by email
-  const targetUser = await db.query.users.findFirst({
-    where: eq(users.email, email),
-  });
+  const { data: targetUser, error: targetError } = await supabase
+    .from("users")
+    .select("id")
+    .eq("email", email)
+    .maybeSingle();
+
+  if (targetError) throw new Error(targetError.message);
 
   if (!targetUser) {
     throw new Error("User not found. They must sign up first.");
@@ -152,53 +190,64 @@ export async function shareBaby(babyId: string, email: string, role: "viewer" | 
   }
 
   // Check if already shared
-  const existingShare = await db.query.babyShares.findFirst({
-    where: and(eq(babyShares.babyId, babyId), eq(babyShares.userId, targetUser.id)),
-  });
+  const { data: existingShare, error: existingError } = await supabase
+    .from("baby_shares")
+    .select("id")
+    .eq("baby_id", babyId)
+    .eq("user_id", (targetUser as any).id)
+    .maybeSingle();
+
+  if (existingError) throw new Error(existingError.message);
 
   if (existingShare) {
     throw new Error("Already shared with this user");
   }
 
-  await db.insert(babyShares).values({
-    babyId,
-    userId: targetUser.id,
+  const { error: insertError } = await supabase.from("baby_shares").insert({
+    baby_id: babyId,
+    user_id: (targetUser as any).id,
     role,
   });
+
+  if (insertError) throw new Error(insertError.message);
 
   revalidatePath("/babies");
 }
 
 export async function removeBabyShare(babyId: string, targetUserId: string) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+  await requireUserId();
+  const supabase = await createClient();
 
   const baby = await getBaby(babyId);
   if (!baby || baby.role !== "owner") {
     throw new Error("Not authorized");
   }
 
-  await db
-    .delete(babyShares)
-    .where(and(eq(babyShares.babyId, babyId), eq(babyShares.userId, targetUserId)));
+  const { error } = await supabase
+    .from("baby_shares")
+    .delete()
+    .eq("baby_id", babyId)
+    .eq("user_id", targetUserId);
+
+  if (error) throw new Error(error.message);
 
   revalidatePath("/babies");
 }
 
 export async function getBabyShares(babyId: string) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+  await requireUserId();
+  const supabase = await createClient();
 
   const baby = await getBaby(babyId);
   if (!baby) throw new Error("Baby not found");
 
-  const shares = await db.query.babyShares.findMany({
-    where: eq(babyShares.babyId, babyId),
-    with: {
-      user: true,
-    },
-  });
+  const { data: shares, error } = await supabase
+    .from("baby_shares")
+    .select(
+      `${shareSelect},user:users(id,email,first_name:firstName,last_name:lastName,image_url:imageUrl)`
+    )
+    .eq("baby_id", babyId);
 
+  if (error) throw new Error(error.message);
   return shares;
 }
-

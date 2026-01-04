@@ -37,7 +37,7 @@ import type {
   GrowthLog,
   PottyLog,
   Solid,
-} from "@/lib/db/schema";
+} from "@/lib/types/db";
 
 const trackingTypes = [
   {

@@ -1,4 +1,4 @@
-import { SignUp } from "@clerk/nextjs";
+import { signUpWithPassword } from "@/lib/actions/auth";
 
 export default function SignUpPage() {
   return (
@@ -77,23 +77,46 @@ export default function SignUpPage() {
             Create an account to start tracking your baby&apos;s day.
           </p>
         </div>
-        <SignUp
-          forceRedirectUrl="/dashboard"
-          appearance={{
-            elements: {
-              formButtonPrimary:
-                "bg-primary text-primary-foreground hover:bg-lime-dark",
-              card: "bg-card border-border",
-              headerTitle: "text-foreground",
-              headerSubtitle: "text-muted-foreground",
-              socialButtonsBlockButton:
-                "bg-secondary text-secondary-foreground border-border hover:bg-muted",
-              formFieldLabel: "text-foreground",
-              formFieldInput: "bg-input border-border text-foreground",
-              footerActionLink: "text-accent hover:text-cyan-dark",
-            },
-          }}
-        />
+        <div className="rounded-lg border border-border bg-card p-6">
+          <form action={signUpWithPassword} className="space-y-4">
+            <div className="space-y-2">
+              <label
+                className="text-sm font-medium text-foreground"
+                htmlFor="email"
+              >
+                Email
+              </label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                required
+                className="w-full rounded-md border border-border bg-input px-3 py-2 text-foreground"
+              />
+            </div>
+            <div className="space-y-2">
+              <label
+                className="text-sm font-medium text-foreground"
+                htmlFor="password"
+              >
+                Password
+              </label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                required
+                className="w-full rounded-md border border-border bg-input px-3 py-2 text-foreground"
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full rounded-md bg-primary px-3 py-2 text-primary-foreground hover:bg-lime-dark"
+            >
+              Create account
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );

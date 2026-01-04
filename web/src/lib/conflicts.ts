@@ -1,9 +1,12 @@
 "use server";
 
-import { db } from "@/lib/db";
-import { and, eq, isNull, gte, lte, or } from "drizzle-orm";
-import { feedings, sleepLogs, pumpings, activities } from "@/lib/db/schema";
-import { ActivityType, ActiveActivity, Conflict, ConflictCheckResult } from "@/lib/utils";
+import {
+  ActivityType,
+  ActiveActivity,
+  Conflict,
+  ConflictCheckResult,
+} from "@/lib/utils";
+import { createClient } from "@/lib/supabase/server";
 
 // Define which activities are mutually exclusive (can't happen simultaneously)
 // Only core ongoing activities create conflicts - everything else can happen anytime
@@ -28,54 +31,72 @@ const ACTIVITIES_WITH_ACTIVE_SESSIONS = new Set<ActivityType>([
 /**
  * Get all currently active activities for a baby
  */
-export async function getActiveActivities(babyId: string): Promise<ActiveActivity[]> {
+export async function getActiveActivities(
+  babyId: string
+): Promise<ActiveActivity[]> {
   const activeActivities: ActiveActivity[] = [];
+  const supabase = await createClient();
 
   // Check for active nursing (feeding with endTime null and type "nursing")
-  const activeNursing = await db.query.feedings.findFirst({
-    where: and(
-      eq(feedings.babyId, babyId),
-      eq(feedings.type, "nursing"),
-      isNull(feedings.endTime)
-    ),
-    orderBy: [feedings.startTime],
-  });
+  const { data: activeNursing, error: nursingError } = await supabase
+    .from("feedings")
+    .select("id,start_time")
+    .eq("baby_id", babyId)
+    .eq("type", "nursing")
+    .is("end_time", null)
+    .order("start_time", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (nursingError) throw new Error(nursingError.message);
 
   if (activeNursing) {
     activeActivities.push({
-      id: activeNursing.id,
+      id: (activeNursing as any).id,
       type: "feeding",
-      startTime: activeNursing.startTime,
+      startTime: new Date((activeNursing as any).start_time),
       description: "Nursing session in progress",
     });
   }
 
   // Check for active sleep
-  const activeSleep = await db.query.sleepLogs.findFirst({
-    where: and(eq(sleepLogs.babyId, babyId), isNull(sleepLogs.endTime)),
-    orderBy: [sleepLogs.startTime],
-  });
+  const { data: activeSleep, error: sleepError } = await supabase
+    .from("sleep_logs")
+    .select("id,start_time")
+    .eq("baby_id", babyId)
+    .is("end_time", null)
+    .order("start_time", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (sleepError) throw new Error(sleepError.message);
 
   if (activeSleep) {
     activeActivities.push({
-      id: activeSleep.id,
+      id: (activeSleep as any).id,
       type: "sleep",
-      startTime: activeSleep.startTime,
+      startTime: new Date((activeSleep as any).start_time),
       description: "Sleep session in progress",
     });
   }
 
   // Check for active pumping
-  const activePumping = await db.query.pumpings.findFirst({
-    where: and(eq(pumpings.babyId, babyId), isNull(pumpings.endTime)),
-    orderBy: [pumpings.startTime],
-  });
+  const { data: activePumping, error: pumpingError } = await supabase
+    .from("pumpings")
+    .select("id,start_time")
+    .eq("baby_id", babyId)
+    .is("end_time", null)
+    .order("start_time", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (pumpingError) throw new Error(pumpingError.message);
 
   if (activePumping) {
     activeActivities.push({
-      id: activePumping.id,
+      id: (activePumping as any).id,
       type: "pumping",
-      startTime: activePumping.startTime,
+      startTime: new Date((activePumping as any).start_time),
       description: "Pumping session in progress",
     });
   }
@@ -95,11 +116,15 @@ export async function checkActivityConflicts(
   excludeEntryId?: string
 ): Promise<ConflictCheckResult> {
   const conflicts: Conflict[] = [];
+
+  const supabase = await createClient();
   let activeActivities = await getActiveActivities(babyId);
-  
+
   // Exclude the current entry if we're editing
   if (excludeEntryId) {
-    activeActivities = activeActivities.filter(active => active.id !== excludeEntryId);
+    activeActivities = activeActivities.filter(
+      (active) => active.id !== excludeEntryId
+    );
   }
 
   // Check for active session conflicts
@@ -107,27 +132,31 @@ export async function checkActivityConflicts(
   // - We're editing (excludeEntryId is provided) AND the session has an endTime (it's completed)
   // - The activity is pumping (wildcard activity that can happen anytime)
   const isEditingCompletedSession = excludeEntryId && endTime;
-  if (!isEditingCompletedSession && ACTIVITIES_WITH_ACTIVE_SESSIONS.has(newActivityType) && newActivityType !== "pumping") {
+  if (
+    !isEditingCompletedSession &&
+    ACTIVITIES_WITH_ACTIVE_SESSIONS.has(newActivityType) &&
+    newActivityType !== "pumping"
+  ) {
     // Only flag as conflict if there's actual time overlap
-    const conflictingActives = activeActivities.filter(active => {
+    const conflictingActives = activeActivities.filter((active) => {
       // Skip same type and pumping
       if (active.type === newActivityType || active.type === "pumping") {
         return false;
       }
-      
+
       // If we have a time range, check for actual overlap
       if (startTime && endTime) {
         // Active session started before our end time - potential overlap
         return active.startTime < endTime;
       }
-      
+
       // If we only have start time, check if active session overlaps
       if (startTime) {
         // For active sessions (no end time), check if they started before our start time
         // This means they could still be active when we want to start
         return active.startTime <= startTime;
       }
-      
+
       // Default: consider it a conflict
       return true;
     });
@@ -145,18 +174,20 @@ export async function checkActivityConflicts(
   // Check for logical conflicts with active activities
   // Skip if we already have active conflicts (prioritize active conflicts)
   if (conflicts.length === 0) {
-    const logicalConflicts = activeActivities.filter(active => {
-      const exclusiveWith = MUTUALLY_EXCLUSIVE[newActivityType as keyof typeof MUTUALLY_EXCLUSIVE] as readonly ActivityType[] | undefined;
+    const logicalConflicts = activeActivities.filter((active) => {
+      const exclusiveWith = MUTUALLY_EXCLUSIVE[
+        newActivityType as keyof typeof MUTUALLY_EXCLUSIVE
+      ] as readonly ActivityType[] | undefined;
       if (!exclusiveWith?.includes(active.type)) {
         return false;
       }
-      
+
       // If we have time information, check for actual overlap
       if (startTime && endTime) {
         // Only flag as conflict if the active session started before our end time
         return active.startTime < endTime;
       }
-      
+
       // If no end time, both are active, so they conflict
       return true;
     });
@@ -173,7 +204,14 @@ export async function checkActivityConflicts(
 
   // For past events, check if they would conflict with activities that were active at that time
   if (startTime && startTime < new Date()) {
-    const pastConflicts = await checkPastEventConflicts(babyId, newActivityType, startTime, endTime, babyName, excludeEntryId);
+    const pastConflicts = await checkPastEventConflicts(
+      babyId,
+      newActivityType,
+      startTime,
+      endTime,
+      babyName,
+      excludeEntryId
+    );
     conflicts.push(...pastConflicts);
   }
 
@@ -196,6 +234,8 @@ async function checkPastEventConflicts(
 ): Promise<Conflict[]> {
   const conflicts: Conflict[] = [];
 
+  const supabase = await createClient();
+
   // Only check conflicts for activities that can be ongoing
   if (!ACTIVITIES_WITH_ACTIVE_SESSIONS.has(newActivityType)) {
     return conflicts;
@@ -206,80 +246,87 @@ async function checkPastEventConflicts(
 
   // Get all activities that are currently active (no endTime)
   // We'll filter for time overlap after
-  const [
-    activeFeedings,
-    activeSleeps,
-    activePumpings,
-  ] = await Promise.all([
+  const [activeFeedings, activeSleeps, activePumpings] = await Promise.all([
     // Find all active feeding sessions
-    db.query.feedings.findMany({
-      where: and(
-        eq(feedings.babyId, babyId),
-        eq(feedings.type, "nursing"),
-        isNull(feedings.endTime), // Still active
-      ),
-    }),
+    supabase
+      .from("feedings")
+      .select("id,start_time")
+      .eq("baby_id", babyId)
+      .eq("type", "nursing")
+      .is("end_time", null),
     // Find all active sleep sessions
-    db.query.sleepLogs.findMany({
-      where: and(
-        eq(sleepLogs.babyId, babyId),
-        isNull(sleepLogs.endTime), // Still active
-      ),
-    }),
+    supabase
+      .from("sleep_logs")
+      .select("id,start_time")
+      .eq("baby_id", babyId)
+      .is("end_time", null),
     // Find all active pumping sessions
-    db.query.pumpings.findMany({
-      where: and(
-        eq(pumpings.babyId, babyId),
-        isNull(pumpings.endTime), // Still active
-      ),
-    }),
+    supabase
+      .from("pumpings")
+      .select("id,start_time")
+      .eq("baby_id", babyId)
+      .is("end_time", null),
   ]);
 
+  if (activeFeedings.error) throw new Error(activeFeedings.error.message);
+  if (activeSleeps.error) throw new Error(activeSleeps.error.message);
+  if (activePumpings.error) throw new Error(activePumpings.error.message);
+
   let pastActiveActivities: ActiveActivity[] = [
-    ...activeFeedings.map(f => ({
-      id: f.id,
+    ...(activeFeedings.data ?? []).map((f: unknown) => ({
+      id: (f as any).id,
       type: "feeding" as ActivityType,
-      startTime: f.startTime,
-      description: `Nursing session active since ${f.startTime.toLocaleTimeString()}`,
+      startTime: new Date((f as any).start_time),
+      description: `Nursing session active since ${new Date(
+        (f as any).start_time
+      ).toLocaleTimeString()}`,
     })),
-    ...activeSleeps.map(s => ({
-      id: s.id,
+    ...(activeSleeps.data ?? []).map((s: unknown) => ({
+      id: (s as any).id,
       type: "sleep" as ActivityType,
-      startTime: s.startTime,
-      description: `Sleep session active since ${s.startTime.toLocaleTimeString()}`,
+      startTime: new Date((s as any).start_time),
+      description: `Sleep session active since ${new Date(
+        (s as any).start_time
+      ).toLocaleTimeString()}`,
     })),
-    ...activePumpings.map(p => ({
-      id: p.id,
+    ...(activePumpings.data ?? []).map((p: unknown) => ({
+      id: (p as any).id,
       type: "pumping" as ActivityType,
-      startTime: p.startTime,
-      description: `Pumping session active since ${p.startTime.toLocaleTimeString()}`,
+      startTime: new Date((p as any).start_time),
+      description: `Pumping session active since ${new Date(
+        (p as any).start_time
+      ).toLocaleTimeString()}`,
     })),
   ];
 
   // Exclude the current entry if we're editing
   if (excludeEntryId) {
-    pastActiveActivities = pastActiveActivities.filter(active => active.id !== excludeEntryId);
+    pastActiveActivities = pastActiveActivities.filter(
+      (active) => active.id !== excludeEntryId
+    );
   }
 
   // Filter to only activities that actually overlap in time
   if (endTime) {
     // If we have an end time, check if the active session started before our end time
     // This means: active session is still ongoing AND it started before our activity ended
-    pastActiveActivities = pastActiveActivities.filter(active => 
-      active.startTime < endTime
+    pastActiveActivities = pastActiveActivities.filter(
+      (active) => active.startTime < endTime
     );
   } else {
     // If we don't have an end time (still active), check if the active session started before now
     // Since both sessions are active, they would overlap
     const now = new Date();
-    pastActiveActivities = pastActiveActivities.filter(active => 
-      active.startTime < now
+    pastActiveActivities = pastActiveActivities.filter(
+      (active) => active.startTime < now
     );
   }
 
   // Check for logical conflicts with past active activities
-  const logicalConflicts = pastActiveActivities.filter(active => {
-    const exclusiveWith = MUTUALLY_EXCLUSIVE[newActivityType as keyof typeof MUTUALLY_EXCLUSIVE] as readonly ActivityType[] | undefined;
+  const logicalConflicts = pastActiveActivities.filter((active) => {
+    const exclusiveWith = MUTUALLY_EXCLUSIVE[
+      newActivityType as keyof typeof MUTUALLY_EXCLUSIVE
+    ] as readonly ActivityType[] | undefined;
     return exclusiveWith?.includes(active.type);
   });
 

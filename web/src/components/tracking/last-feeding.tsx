@@ -3,7 +3,7 @@
 import * as React from "react";
 import { formatDistanceToNow, isToday, isYesterday } from "date-fns";
 import { useRouter } from "next/navigation";
-import { Feeding } from "@/lib/db/schema";
+import type { Feeding } from "@/lib/types/db";
 import { getCurrentUser } from "@/lib/actions/users";
 import { formatVolumeForUnitSystem } from "@/lib/utils";
 

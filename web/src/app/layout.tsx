@@ -1,7 +1,6 @@
 import * as React from "react";
 import type { Metadata, Viewport } from "next";
 import { Nunito } from "next/font/google";
-import { ClerkProvider } from "@clerk/nextjs";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
@@ -58,7 +57,8 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "LessFussy - Simple Baby Tracking App",
-    description: "The beautiful, intuitive baby tracker for stress-free parenting.",
+    description:
+      "The beautiful, intuitive baby tracker for stress-free parenting.",
     images: ["/og-image.png"],
     creator: "@lessfussy",
   },
@@ -100,21 +100,19 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider>
-      <html lang="en" suppressHydrationWarning>
-        <body className={`${nunito.variable} font-sans antialiased`}>
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="system"
-            enableSystem
-            disableTransitionOnChange
-            storageKey="lessfussy-theme"
-          >
-            {children}
-            <Toaster position="bottom-left" richColors />
-          </ThemeProvider>
-        </body>
-      </html>
-    </ClerkProvider>
+    <html lang="en" suppressHydrationWarning>
+      <body className={`${nunito.variable} font-sans antialiased`}>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+          storageKey="lessfussy-theme"
+        >
+          {children}
+          <Toaster position="bottom-left" richColors />
+        </ThemeProvider>
+      </body>
+    </html>
   );
 }

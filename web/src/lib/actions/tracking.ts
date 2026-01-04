@@ -1,35 +1,107 @@
 "use server";
 
-import { auth } from "@clerk/nextjs/server";
-import {
-  db,
-  feedings,
-  sleepLogs,
-  diapers,
-  pottyLogs,
-  pumpings,
-  medicines,
-  temperatures,
-  activities,
-  growthLogs,
-  solids,
-} from "@/lib/db";
 import { getBaby } from "./babies";
 import { revalidatePath } from "next/cache";
-import { eq, desc, and, gte, lte, isNull } from "drizzle-orm";
 import { checkActivityConflicts } from "@/lib/conflicts";
 import { type ActivityType } from "@/lib/utils";
+import { requireUserId } from "@/lib/supabase/auth";
+import { createClient } from "@/lib/supabase/server";
 import type {
+  Activity,
+  Feeding,
+  GrowthLog,
+  Medicine,
   NewFeeding,
+  Pumping,
+  Solid,
+  SleepLog,
+  Temperature,
   NewSleepLog,
   NewDiaper,
+  Diaper,
+  PottyLog,
   NewPumping,
-} from "@/lib/db/schema";
+} from "@/lib/types/db";
+
+function mapFeedingRow(row: any): Feeding {
+  return {
+    id: row.id,
+    babyId: row.babyId ?? row.baby_id,
+    type: row.type,
+    startTime: new Date(row.startTime ?? row.start_time),
+    endTime:
+      row.endTime ?? row.end_time
+        ? new Date(row.endTime ?? row.end_time)
+        : null,
+    side: row.side ?? null,
+    leftDuration: row.leftDuration ?? row.left_duration ?? null,
+    rightDuration: row.rightDuration ?? row.right_duration ?? null,
+    pausedDuration: row.pausedDuration ?? row.paused_duration ?? null,
+    lastPersistedAt:
+      row.lastPersistedAt ?? row.last_persisted_at
+        ? new Date(row.lastPersistedAt ?? row.last_persisted_at)
+        : null,
+    currentStatus: row.currentStatus ?? row.current_status ?? null,
+    bottleContent: row.bottleContent ?? row.bottle_content ?? null,
+    amount: row.amount ?? null,
+    amountUnit: row.amountUnit ?? row.amount_unit ?? null,
+    notes: row.notes ?? null,
+    createdAt: new Date(row.createdAt ?? row.created_at),
+    updatedAt: new Date(row.updatedAt ?? row.updated_at),
+  };
+}
+
+function mapSleepRow(row: any): SleepLog {
+  return {
+    id: row.id,
+    babyId: row.babyId ?? row.baby_id,
+    startTime: new Date(row.startTime ?? row.start_time),
+    endTime:
+      row.endTime ?? row.end_time
+        ? new Date(row.endTime ?? row.end_time)
+        : null,
+    startMood: row.startMood ?? row.start_mood ?? null,
+    endMood: row.endMood ?? row.end_mood ?? null,
+    fallAsleepTime: row.fallAsleepTime ?? row.fall_asleep_time ?? null,
+    sleepMethod: row.sleepMethod ?? row.sleep_method ?? null,
+    wokeUpChild: row.wokeUpChild ?? row.woke_up_child ?? null,
+    notes: row.notes ?? null,
+    createdAt: new Date(row.createdAt ?? row.created_at),
+    updatedAt: new Date(row.updatedAt ?? row.updated_at),
+  };
+}
+
+const feedingSelect =
+  "id,babyId:baby_id,type,startTime:start_time,endTime:end_time,side,leftDuration:left_duration,rightDuration:right_duration,pausedDuration:paused_duration,lastPersistedAt:last_persisted_at,currentStatus:current_status,bottleContent:bottle_content,amount,amountUnit:amount_unit,notes,createdAt:created_at,updatedAt:updated_at";
+
+const sleepSelect =
+  "id,babyId:baby_id,startTime:start_time,endTime:end_time,startMood:start_mood,endMood:end_mood,fallAsleepTime:fall_asleep_time,sleepMethod:sleep_method,wokeUpChild:woke_up_child,notes,createdAt:created_at,updatedAt:updated_at";
+
+const diaperSelect = "id,babyId:baby_id,time,type,notes,createdAt:created_at";
+
+const pottySelect = "id,babyId:baby_id,time,type,notes,createdAt:created_at";
+
+const pumpingSelect =
+  "id,babyId:baby_id,startTime:start_time,endTime:end_time,duration,lastPersistedAt:last_persisted_at,currentStatus:current_status,leftAmount:left_amount,rightAmount:right_amount,totalAmount:total_amount,amountUnit:amount_unit,notes,createdAt:created_at";
+
+const medicineSelect =
+  "id,babyId:baby_id,time,name,amount,unit,notes,createdAt:created_at";
+
+const temperatureSelect =
+  "id,babyId:baby_id,time,value,unit,notes,createdAt:created_at";
+
+const activitySelect =
+  "id,babyId:baby_id,startTime:start_time,endTime:end_time,type,notes,createdAt:created_at";
+
+const growthSelect =
+  "id,babyId:baby_id,date,time,weight,weightUnit:weight_unit,height,heightUnit:height_unit,headCircumference:head_circumference,headUnit:head_unit,notes,createdAt:created_at";
+
+const solidsSelect =
+  "id,babyId:baby_id,time,foods,reaction,photoUrl:photo_url,notes,createdAt:created_at";
 
 // Helper to check baby access
 async function checkBabyAccess(babyId: string) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+  await requireUserId();
 
   const baby = await getBaby(babyId);
   if (!baby) throw new Error("Baby not found or access denied");
@@ -44,7 +116,11 @@ async function checkAndThrowConflicts(
   activityType: ActivityType,
   startTime?: Date,
   endTime?: Date,
-  options: { allowOverride?: boolean; babyName?: string; excludeEntryId?: string } = {}
+  options: {
+    allowOverride?: boolean;
+    babyName?: string;
+    excludeEntryId?: string;
+  } = {}
 ) {
   const { allowOverride = false, babyName, excludeEntryId } = options;
   const conflictResult = await checkActivityConflicts(
@@ -101,103 +177,121 @@ export async function createFeeding(
     );
   }
 
-  const [result] = await db.insert(feedings).values(data).returning();
+  const supabase = await createClient();
+
+  const insertData: Record<string, unknown> = {
+    baby_id: (data as any).babyId,
+    type: (data as any).type,
+    start_time: (data as any).startTime,
+    end_time: (data as any).endTime ?? null,
+    side: (data as any).side ?? null,
+    left_duration: (data as any).leftDuration ?? null,
+    right_duration: (data as any).rightDuration ?? null,
+    paused_duration: (data as any).pausedDuration ?? null,
+    last_persisted_at: (data as any).lastPersistedAt ?? null,
+    current_status: (data as any).currentStatus ?? null,
+    bottle_content: (data as any).bottleContent ?? null,
+    amount: (data as any).amount ?? null,
+    amount_unit: (data as any).amountUnit ?? null,
+    notes: (data as any).notes ?? null,
+  };
+
+  const { data: result, error } = await supabase
+    .from("feedings")
+    .insert(insertData)
+    .select(feedingSelect)
+    .single();
+
+  if (error) throw new Error(error.message);
   revalidatePath("/");
   revalidatePath("/history");
-  return result;
+  return mapFeedingRow(result);
 }
 
-export async function getLastFeeding(babyId: string) {
+export async function getLastFeeding(babyId: string): Promise<Feeding | null> {
   await checkBabyAccess(babyId);
 
-  return await db.query.feedings.findFirst({
-    where: eq(feedings.babyId, babyId),
-    orderBy: [desc(feedings.startTime)],
-  });
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("feedings")
+    .select(feedingSelect)
+    .eq("baby_id", babyId)
+    .order("start_time", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return data ? mapFeedingRow(data) : null;
 }
 
-export async function getLastTrackingForAllTypes(babyId: string) {
+export async function getLastTrackingForAllTypes(babyId: string): Promise<{
+  feeding: Feeding | undefined;
+  sleep: SleepLog | undefined;
+  diaper: Diaper | undefined;
+  pumping: Pumping | undefined;
+  medicine: Medicine | undefined;
+  temperature: Temperature | undefined;
+  activity: Activity | undefined;
+  growth: GrowthLog | undefined;
+  potty: PottyLog | undefined;
+  solids: Solid | undefined;
+}> {
   await checkBabyAccess(babyId);
 
-  const [
-    lastFeeding,
-    lastSleep,
-    lastDiaper,
-    lastPumping,
-    lastMedicine,
-    lastTemperature,
-    lastActivity,
-    lastGrowth,
-    lastPotty,
-    lastSolids,
-  ] = await Promise.all([
-    db.query.feedings.findFirst({
-      where: eq(feedings.babyId, babyId),
-      orderBy: [desc(feedings.startTime)],
-    }),
-    db.query.sleepLogs.findFirst({
-      where: eq(sleepLogs.babyId, babyId),
-      orderBy: [desc(sleepLogs.startTime)],
-    }),
-    db.query.diapers.findFirst({
-      where: eq(diapers.babyId, babyId),
-      orderBy: [desc(diapers.time)],
-    }),
-    db.query.pumpings.findFirst({
-      where: eq(pumpings.babyId, babyId),
-      orderBy: [desc(pumpings.startTime)],
-    }),
-    db.query.medicines.findFirst({
-      where: eq(medicines.babyId, babyId),
-      orderBy: [desc(medicines.time)],
-    }),
-    db.query.temperatures.findFirst({
-      where: eq(temperatures.babyId, babyId),
-      orderBy: [desc(temperatures.time)],
-    }),
-    db.query.activities.findFirst({
-      where: eq(activities.babyId, babyId),
-      orderBy: [desc(activities.startTime)],
-    }),
-    db.query.growthLogs.findFirst({
-      where: eq(growthLogs.babyId, babyId),
-      orderBy: [desc(growthLogs.createdAt)],
-    }),
-    db.query.pottyLogs.findFirst({
-      where: eq(pottyLogs.babyId, babyId),
-      orderBy: [desc(pottyLogs.time)],
-    }),
-    db.query.solids.findFirst({
-      where: eq(solids.babyId, babyId),
-      orderBy: [desc(solids.time)],
-    }),
+  const supabase = await createClient();
+
+  const [lastFeeding, lastSleep] = await Promise.all([
+    supabase
+      .from("feedings")
+      .select(feedingSelect)
+      .eq("baby_id", babyId)
+      .order("start_time", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("sleep_logs")
+      .select(sleepSelect)
+      .eq("baby_id", babyId)
+      .order("start_time", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
+  if (lastFeeding.error) throw new Error(lastFeeding.error.message);
+  if (lastSleep.error) throw new Error(lastSleep.error.message);
+
   return {
-    feeding: lastFeeding,
-    sleep: lastSleep,
-    diaper: lastDiaper,
-    pumping: lastPumping,
-    medicine: lastMedicine,
-    temperature: lastTemperature,
-    activity: lastActivity,
-    growth: lastGrowth,
-    potty: lastPotty,
-    solids: lastSolids,
+    feeding: lastFeeding.data ? mapFeedingRow(lastFeeding.data) : undefined,
+    sleep: lastSleep.data ? mapSleepRow(lastSleep.data) : undefined,
+    diaper: undefined,
+    pumping: undefined,
+    medicine: undefined,
+    temperature: undefined,
+    activity: undefined,
+    growth: undefined,
+    potty: undefined,
+    solids: undefined,
   };
 }
 
-export async function getActiveNursing(babyId: string) {
+export async function getActiveNursing(
+  babyId: string
+): Promise<Feeding | null> {
   await checkBabyAccess(babyId);
 
-  return await db.query.feedings.findFirst({
-    where: and(
-      eq(feedings.babyId, babyId),
-      eq(feedings.type, "nursing"),
-      isNull(feedings.endTime)
-    ),
-    orderBy: [desc(feedings.startTime)],
-  });
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("feedings")
+    .select(feedingSelect)
+    .eq("baby_id", babyId)
+    .eq("type", "nursing")
+    .is("end_time", null)
+    .order("start_time", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return data ? mapFeedingRow(data) : null;
 }
 
 export async function startOrUpdateActiveNursing(
@@ -217,13 +311,18 @@ export async function startOrUpdateActiveNursing(
   const now = new Date();
 
   // Check if there's already an active nursing session
-  const existing = await db.query.feedings.findFirst({
-    where: and(
-      eq(feedings.babyId, data.babyId),
-      eq(feedings.type, "nursing"),
-      isNull(feedings.endTime)
-    ),
-  });
+  const supabase = await createClient();
+  const { data: existing, error: existingError } = await supabase
+    .from("feedings")
+    .select(feedingSelect)
+    .eq("baby_id", data.babyId)
+    .eq("type", "nursing")
+    .is("end_time", null)
+    .order("start_time", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) throw new Error(existingError.message);
 
   // Only check for conflicts when starting a new session (not updating existing)
   if (!existing) {
@@ -243,40 +342,46 @@ export async function startOrUpdateActiveNursing(
 
   if (existing) {
     // Update existing session
-    const [result] = await db
-      .update(feedings)
-      .set({
-        startTime: data.startTime,
+    const { data: result, error } = await supabase
+      .from("feedings")
+      .update({
+        start_time: data.startTime,
         side,
-        leftDuration: data.leftDuration,
-        rightDuration: data.rightDuration,
-        pausedDuration: data.pausedDuration,
-        lastPersistedAt: now,
-        currentStatus: data.currentStatus,
-        notes: data.notes,
-        updatedAt: now,
+        left_duration: data.leftDuration,
+        right_duration: data.rightDuration,
+        paused_duration: data.pausedDuration,
+        last_persisted_at: now,
+        current_status: data.currentStatus,
+        notes: data.notes ?? null,
+        updated_at: now.toISOString(),
       })
-      .where(eq(feedings.id, existing.id))
-      .returning();
+      .eq("id", (existing as any).id)
+      .select(feedingSelect)
+      .single();
+
+    if (error) throw new Error(error.message);
     return result;
   } else {
     // Create new active session
-    const [result] = await db
-      .insert(feedings)
-      .values({
-        babyId: data.babyId,
+    const { data: result, error } = await supabase
+      .from("feedings")
+      .insert({
+        baby_id: data.babyId,
         type: "nursing",
-        startTime: data.startTime,
-        endTime: null,
+        start_time: data.startTime,
+        end_time: null,
         side,
-        leftDuration: data.leftDuration,
-        rightDuration: data.rightDuration,
-        pausedDuration: data.pausedDuration,
-        lastPersistedAt: now,
-        currentStatus: data.currentStatus,
-        notes: data.notes,
+        left_duration: data.leftDuration,
+        right_duration: data.rightDuration,
+        paused_duration: data.pausedDuration,
+        last_persisted_at: now,
+        current_status: data.currentStatus,
+        notes: data.notes ?? null,
       })
-      .returning();
+      .select(feedingSelect)
+      .single();
+
+    if (error) throw new Error(error.message);
     return result;
   }
 }
@@ -285,16 +390,25 @@ export async function cancelActiveNursing(babyId: string) {
   await checkBabyAccess(babyId);
 
   // Find and delete the active nursing session
-  const existing = await db.query.feedings.findFirst({
-    where: and(
-      eq(feedings.babyId, babyId),
-      eq(feedings.type, "nursing"),
-      isNull(feedings.endTime)
-    ),
-  });
+  const supabase = await createClient();
+  const { data: existing, error: existingError } = await supabase
+    .from("feedings")
+    .select("id")
+    .eq("baby_id", babyId)
+    .eq("type", "nursing")
+    .is("end_time", null)
+    .order("start_time", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) throw new Error(existingError.message);
 
   if (existing) {
-    await db.delete(feedings).where(eq(feedings.id, existing.id));
+    const { error } = await supabase
+      .from("feedings")
+      .delete()
+      .eq("id", existing.id);
+    if (error) throw new Error(error.message);
   }
 
   revalidatePath("/");
@@ -319,54 +433,65 @@ export async function completeActiveNursing(
   else if (data.rightDuration > 0 && data.leftDuration === 0) side = "right";
 
   // Find the active nursing session
-  const existing = await db.query.feedings.findFirst({
-    where: and(
-      eq(feedings.babyId, babyId),
-      eq(feedings.type, "nursing"),
-      isNull(feedings.endTime)
-    ),
-  });
+  const supabase = await createClient();
+  const { data: existing, error: existingError } = await supabase
+    .from("feedings")
+    .select("id")
+    .eq("baby_id", babyId)
+    .eq("type", "nursing")
+    .is("end_time", null)
+    .order("start_time", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) throw new Error(existingError.message);
 
   if (existing) {
     // Complete the existing session - clear lastPersistedAt and currentStatus
-    const [result] = await db
-      .update(feedings)
-      .set({
-        startTime: data.startTime,
-        endTime: data.endTime,
+    const { data: result, error } = await supabase
+      .from("feedings")
+      .update({
+        start_time: data.startTime,
+        end_time: data.endTime,
         side,
-        leftDuration: data.leftDuration,
-        rightDuration: data.rightDuration,
-        pausedDuration: data.pausedDuration,
-        lastPersistedAt: null,
-        currentStatus: null,
-        notes: data.notes,
-        updatedAt: new Date(),
+        left_duration: data.leftDuration,
+        right_duration: data.rightDuration,
+        paused_duration: data.pausedDuration,
+        last_persisted_at: null,
+        current_status: null,
+        notes: data.notes ?? null,
+        updated_at: new Date().toISOString(),
       })
-      .where(eq(feedings.id, existing.id))
-      .returning();
+      .eq("id", existing.id)
+      .select(feedingSelect)
+      .single();
+
+    if (error) throw new Error(error.message);
 
     revalidatePath("/");
     revalidatePath("/history");
     return result;
   } else {
     // No active session, create a completed one
-    const [result] = await db
-      .insert(feedings)
-      .values({
-        babyId,
+    const { data: result, error } = await supabase
+      .from("feedings")
+      .insert({
+        baby_id: babyId,
         type: "nursing",
-        startTime: data.startTime,
-        endTime: data.endTime,
+        start_time: data.startTime,
+        end_time: data.endTime,
         side,
-        leftDuration: data.leftDuration,
-        rightDuration: data.rightDuration,
-        pausedDuration: data.pausedDuration,
-        lastPersistedAt: null,
-        currentStatus: null,
-        notes: data.notes,
+        left_duration: data.leftDuration,
+        right_duration: data.rightDuration,
+        paused_duration: data.pausedDuration,
+        last_persisted_at: null,
+        current_status: null,
+        notes: data.notes ?? null,
       })
-      .returning();
+      .select(feedingSelect)
+      .single();
+
+    if (error) throw new Error(error.message);
 
     revalidatePath("/");
     revalidatePath("/history");
@@ -381,11 +506,43 @@ export async function updateFeeding(
 ) {
   await checkBabyAccess(babyId);
 
-  const [result] = await db
-    .update(feedings)
-    .set({ ...data, updatedAt: new Date() })
-    .where(eq(feedings.id, id))
-    .returning();
+  const supabase = await createClient();
+  const updateData: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  };
+
+  if ((data as any).startTime !== undefined)
+    updateData.start_time = (data as any).startTime;
+  if ((data as any).endTime !== undefined)
+    updateData.end_time = (data as any).endTime;
+  if ((data as any).type !== undefined) updateData.type = (data as any).type;
+  if ((data as any).side !== undefined) updateData.side = (data as any).side;
+  if ((data as any).leftDuration !== undefined)
+    updateData.left_duration = (data as any).leftDuration;
+  if ((data as any).rightDuration !== undefined)
+    updateData.right_duration = (data as any).rightDuration;
+  if ((data as any).pausedDuration !== undefined)
+    updateData.paused_duration = (data as any).pausedDuration;
+  if ((data as any).lastPersistedAt !== undefined)
+    updateData.last_persisted_at = (data as any).lastPersistedAt;
+  if ((data as any).currentStatus !== undefined)
+    updateData.current_status = (data as any).currentStatus;
+  if ((data as any).bottleContent !== undefined)
+    updateData.bottle_content = (data as any).bottleContent;
+  if ((data as any).amount !== undefined)
+    updateData.amount = (data as any).amount;
+  if ((data as any).amountUnit !== undefined)
+    updateData.amount_unit = (data as any).amountUnit;
+  if ((data as any).notes !== undefined) updateData.notes = (data as any).notes;
+
+  const { data: result, error } = await supabase
+    .from("feedings")
+    .update(updateData)
+    .eq("id", id)
+    .select(feedingSelect)
+    .single();
+
+  if (error) throw new Error(error.message);
 
   revalidatePath("/");
   revalidatePath("/history");
@@ -394,7 +551,11 @@ export async function updateFeeding(
 
 export async function deleteFeeding(id: string, babyId: string) {
   await checkBabyAccess(babyId);
-  await db.delete(feedings).where(eq(feedings.id, id));
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("feedings").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+
   revalidatePath("/");
   revalidatePath("/history");
 }
@@ -416,7 +577,27 @@ export async function createSleepLog(
     { ...options, babyName: baby.name }
   );
 
-  const [result] = await db.insert(sleepLogs).values(data).returning();
+  const supabase = await createClient();
+
+  const insertData: Record<string, unknown> = {
+    baby_id: (data as any).babyId,
+    start_time: (data as any).startTime,
+    end_time: (data as any).endTime ?? null,
+    start_mood: (data as any).startMood ?? null,
+    end_mood: (data as any).endMood ?? null,
+    fall_asleep_time: (data as any).fallAsleepTime ?? null,
+    sleep_method: (data as any).sleepMethod ?? null,
+    woke_up_child: (data as any).wokeUpChild ?? null,
+    notes: (data as any).notes ?? null,
+  };
+
+  const { data: result, error } = await supabase
+    .from("sleep_logs")
+    .insert(insertData)
+    .select(sleepSelect)
+    .single();
+
+  if (error) throw new Error(error.message);
   revalidatePath("/");
   revalidatePath("/history");
   return result;
@@ -429,11 +610,35 @@ export async function updateSleepLog(
 ) {
   await checkBabyAccess(babyId);
 
-  const [result] = await db
-    .update(sleepLogs)
-    .set({ ...data, updatedAt: new Date() })
-    .where(eq(sleepLogs.id, id))
-    .returning();
+  const supabase = await createClient();
+  const updateData: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  };
+
+  if ((data as any).startTime !== undefined)
+    updateData.start_time = (data as any).startTime;
+  if ((data as any).endTime !== undefined)
+    updateData.end_time = (data as any).endTime;
+  if ((data as any).startMood !== undefined)
+    updateData.start_mood = (data as any).startMood;
+  if ((data as any).endMood !== undefined)
+    updateData.end_mood = (data as any).endMood;
+  if ((data as any).fallAsleepTime !== undefined)
+    updateData.fall_asleep_time = (data as any).fallAsleepTime;
+  if ((data as any).sleepMethod !== undefined)
+    updateData.sleep_method = (data as any).sleepMethod;
+  if ((data as any).wokeUpChild !== undefined)
+    updateData.woke_up_child = (data as any).wokeUpChild;
+  if ((data as any).notes !== undefined) updateData.notes = (data as any).notes;
+
+  const { data: result, error } = await supabase
+    .from("sleep_logs")
+    .update(updateData)
+    .eq("id", id)
+    .select(sleepSelect)
+    .single();
+
+  if (error) throw new Error(error.message);
 
   revalidatePath("/");
   revalidatePath("/history");
@@ -443,15 +648,27 @@ export async function updateSleepLog(
 export async function getActiveSleep(babyId: string) {
   await checkBabyAccess(babyId);
 
-  return await db.query.sleepLogs.findFirst({
-    where: and(eq(sleepLogs.babyId, babyId), isNull(sleepLogs.endTime)),
-    orderBy: [desc(sleepLogs.startTime)],
-  });
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("sleep_logs")
+    .select(sleepSelect)
+    .eq("baby_id", babyId)
+    .is("end_time", null)
+    .order("start_time", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return data;
 }
 
 export async function deleteSleepLog(id: string, babyId: string) {
   await checkBabyAccess(babyId);
-  await db.delete(sleepLogs).where(eq(sleepLogs.id, id));
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("sleep_logs").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+
   revalidatePath("/");
   revalidatePath("/history");
 }
@@ -461,7 +678,19 @@ export async function deleteSleepLog(id: string, babyId: string) {
 export async function createDiaper(data: Omit<NewDiaper, "id" | "createdAt">) {
   await checkBabyAccess(data.babyId);
 
-  const [result] = await db.insert(diapers).values(data).returning();
+  const supabase = await createClient();
+  const { data: result, error } = await supabase
+    .from("diapers")
+    .insert({
+      baby_id: (data as any).babyId,
+      time: (data as any).time,
+      type: (data as any).type,
+      notes: (data as any).notes ?? null,
+    })
+    .select(diaperSelect)
+    .single();
+
+  if (error) throw new Error(error.message);
   revalidatePath("/");
   revalidatePath("/history");
   return result;
@@ -477,14 +706,30 @@ export async function updateDiaper(
   }
 ) {
   await checkBabyAccess(babyId);
-  await db.update(diapers).set(data).where(eq(diapers.id, id));
+
+  const supabase = await createClient();
+  const updateData: Record<string, unknown> = {};
+  if (data.time !== undefined) updateData.time = data.time;
+  if (data.type !== undefined) updateData.type = data.type;
+  if (data.notes !== undefined) updateData.notes = data.notes;
+
+  const { error } = await supabase
+    .from("diapers")
+    .update(updateData)
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+
   revalidatePath("/");
   revalidatePath("/history");
 }
 
 export async function deleteDiaper(id: string, babyId: string) {
   await checkBabyAccess(babyId);
-  await db.delete(diapers).where(eq(diapers.id, id));
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("diapers").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+
   revalidatePath("/");
   revalidatePath("/history");
 }
@@ -499,7 +744,19 @@ export async function createPottyLog(data: {
 }) {
   await checkBabyAccess(data.babyId);
 
-  const [result] = await db.insert(pottyLogs).values(data).returning();
+  const supabase = await createClient();
+  const { data: result, error } = await supabase
+    .from("potty_logs")
+    .insert({
+      baby_id: data.babyId,
+      time: data.time,
+      type: data.type,
+      notes: data.notes ?? null,
+    })
+    .select(pottySelect)
+    .single();
+
+  if (error) throw new Error(error.message);
   revalidatePath("/");
   revalidatePath("/history");
   return result;
@@ -515,14 +772,31 @@ export async function updatePottyLog(
   }
 ) {
   await checkBabyAccess(babyId);
-  await db.update(pottyLogs).set(data).where(eq(pottyLogs.id, id));
+
+  const supabase = await createClient();
+  const updateData: Record<string, unknown> = {};
+  if (data.time !== undefined) updateData.time = data.time;
+  if (data.type !== undefined) updateData.type = data.type;
+  if (data.notes !== undefined) updateData.notes = data.notes;
+
+  const { error } = await supabase
+    .from("potty_logs")
+    .update(updateData)
+    .eq("id", id);
+
+  if (error) throw new Error(error.message);
+
   revalidatePath("/");
   revalidatePath("/history");
 }
 
 export async function deletePottyLog(id: string, babyId: string) {
   await checkBabyAccess(babyId);
-  await db.delete(pottyLogs).where(eq(pottyLogs.id, id));
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("potty_logs").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+
   revalidatePath("/");
   revalidatePath("/history");
 }
@@ -544,7 +818,29 @@ export async function createPumping(
     { ...options, babyName: baby.name }
   );
 
-  const [result] = await db.insert(pumpings).values(data).returning();
+  const supabase = await createClient();
+
+  const insertData: Record<string, unknown> = {
+    baby_id: (data as any).babyId,
+    start_time: (data as any).startTime,
+    end_time: (data as any).endTime ?? null,
+    duration: (data as any).duration ?? null,
+    last_persisted_at: (data as any).lastPersistedAt ?? null,
+    current_status: (data as any).currentStatus ?? null,
+    left_amount: (data as any).leftAmount ?? null,
+    right_amount: (data as any).rightAmount ?? null,
+    total_amount: (data as any).totalAmount ?? null,
+    amount_unit: (data as any).amountUnit ?? null,
+    notes: (data as any).notes ?? null,
+  };
+
+  const { data: result, error } = await supabase
+    .from("pumpings")
+    .insert(insertData)
+    .select(pumpingSelect)
+    .single();
+
+  if (error) throw new Error(error.message);
   revalidatePath("/");
   revalidatePath("/history");
   return result;
@@ -553,10 +849,18 @@ export async function createPumping(
 export async function getActivePumping(babyId: string) {
   await checkBabyAccess(babyId);
 
-  return await db.query.pumpings.findFirst({
-    where: and(eq(pumpings.babyId, babyId), isNull(pumpings.endTime)),
-    orderBy: [desc(pumpings.startTime)],
-  });
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("pumpings")
+    .select(pumpingSelect)
+    .eq("baby_id", babyId)
+    .is("end_time", null)
+    .order("start_time", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return data;
 }
 
 export async function startOrUpdateActivePumping(
@@ -579,9 +883,17 @@ export async function startOrUpdateActivePumping(
   const now = new Date();
 
   // Check if there's already an active pumping session
-  const existing = await db.query.pumpings.findFirst({
-    where: and(eq(pumpings.babyId, data.babyId), isNull(pumpings.endTime)),
-  });
+  const supabase = await createClient();
+  const { data: existing, error: existingError } = await supabase
+    .from("pumpings")
+    .select(pumpingSelect)
+    .eq("baby_id", data.babyId)
+    .is("end_time", null)
+    .order("start_time", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) throw new Error(existingError.message);
 
   // Only check for conflicts when starting a new session (not updating existing)
   if (!existing) {
@@ -596,40 +908,46 @@ export async function startOrUpdateActivePumping(
 
   if (existing) {
     // Update existing session
-    const [result] = await db
-      .update(pumpings)
-      .set({
-        startTime: data.startTime,
+    const { data: result, error } = await supabase
+      .from("pumpings")
+      .update({
+        start_time: data.startTime,
         duration: data.duration,
-        lastPersistedAt: now,
-        currentStatus: data.currentStatus,
-        leftAmount: data.leftAmount,
-        rightAmount: data.rightAmount,
-        totalAmount: data.totalAmount,
-        amountUnit: data.amountUnit,
-        notes: data.notes,
+        last_persisted_at: now,
+        current_status: data.currentStatus,
+        left_amount: data.leftAmount ?? null,
+        right_amount: data.rightAmount ?? null,
+        total_amount: data.totalAmount ?? null,
+        amount_unit: data.amountUnit ?? null,
+        notes: data.notes ?? null,
       })
-      .where(eq(pumpings.id, existing.id))
-      .returning();
+      .eq("id", (existing as any).id)
+      .select(pumpingSelect)
+      .single();
+
+    if (error) throw new Error(error.message);
     return result;
   } else {
     // Create new active session
-    const [result] = await db
-      .insert(pumpings)
-      .values({
-        babyId: data.babyId,
-        startTime: data.startTime,
-        endTime: null,
+    const { data: result, error } = await supabase
+      .from("pumpings")
+      .insert({
+        baby_id: data.babyId,
+        start_time: data.startTime,
+        end_time: null,
         duration: data.duration,
-        lastPersistedAt: now,
-        currentStatus: data.currentStatus,
-        leftAmount: data.leftAmount,
-        rightAmount: data.rightAmount,
-        totalAmount: data.totalAmount,
-        amountUnit: data.amountUnit,
-        notes: data.notes,
+        last_persisted_at: now,
+        current_status: data.currentStatus,
+        left_amount: data.leftAmount ?? null,
+        right_amount: data.rightAmount ?? null,
+        total_amount: data.totalAmount ?? null,
+        amount_unit: data.amountUnit ?? null,
+        notes: data.notes ?? null,
       })
-      .returning();
+      .select(pumpingSelect)
+      .single();
+
+    if (error) throw new Error(error.message);
     return result;
   }
 }
@@ -638,12 +956,24 @@ export async function cancelActivePumping(babyId: string) {
   await checkBabyAccess(babyId);
 
   // Find and delete the active pumping session
-  const existing = await db.query.pumpings.findFirst({
-    where: and(eq(pumpings.babyId, babyId), isNull(pumpings.endTime)),
-  });
+  const supabase = await createClient();
+  const { data: existing, error: existingError } = await supabase
+    .from("pumpings")
+    .select("id")
+    .eq("baby_id", babyId)
+    .is("end_time", null)
+    .order("start_time", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) throw new Error(existingError.message);
 
   if (existing) {
-    await db.delete(pumpings).where(eq(pumpings.id, existing.id));
+    const { error } = await supabase
+      .from("pumpings")
+      .delete()
+      .eq("id", existing.id);
+    if (error) throw new Error(error.message);
   }
 
   revalidatePath("/");
@@ -665,50 +995,64 @@ export async function completeActivePumping(
   await checkBabyAccess(babyId);
 
   // Find the active pumping session
-  const existing = await db.query.pumpings.findFirst({
-    where: and(eq(pumpings.babyId, babyId), isNull(pumpings.endTime)),
-  });
+  const supabase = await createClient();
+  const { data: existing, error: existingError } = await supabase
+    .from("pumpings")
+    .select("id")
+    .eq("baby_id", babyId)
+    .is("end_time", null)
+    .order("start_time", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) throw new Error(existingError.message);
 
   if (existing) {
     // Complete the existing session - clear lastPersistedAt and currentStatus
-    const [result] = await db
-      .update(pumpings)
-      .set({
-        startTime: data.startTime,
-        endTime: data.endTime,
+    const { data: result, error } = await supabase
+      .from("pumpings")
+      .update({
+        start_time: data.startTime,
+        end_time: data.endTime,
         duration: data.duration,
-        lastPersistedAt: null,
-        currentStatus: null,
-        leftAmount: data.leftAmount,
-        rightAmount: data.rightAmount,
-        totalAmount: data.totalAmount,
-        amountUnit: data.amountUnit,
-        notes: data.notes,
+        last_persisted_at: null,
+        current_status: null,
+        left_amount: data.leftAmount ?? null,
+        right_amount: data.rightAmount ?? null,
+        total_amount: data.totalAmount ?? null,
+        amount_unit: data.amountUnit ?? null,
+        notes: data.notes ?? null,
       })
-      .where(eq(pumpings.id, existing.id))
-      .returning();
+      .eq("id", existing.id)
+      .select(pumpingSelect)
+      .single();
+
+    if (error) throw new Error(error.message);
 
     revalidatePath("/");
     revalidatePath("/history");
     return result;
   } else {
     // No active session, create a completed one
-    const [result] = await db
-      .insert(pumpings)
-      .values({
-        babyId,
-        startTime: data.startTime,
-        endTime: data.endTime,
+    const { data: result, error } = await supabase
+      .from("pumpings")
+      .insert({
+        baby_id: babyId,
+        start_time: data.startTime,
+        end_time: data.endTime,
         duration: data.duration,
-        lastPersistedAt: null,
-        currentStatus: null,
-        leftAmount: data.leftAmount,
-        rightAmount: data.rightAmount,
-        totalAmount: data.totalAmount,
-        amountUnit: data.amountUnit,
-        notes: data.notes,
+        last_persisted_at: null,
+        current_status: null,
+        left_amount: data.leftAmount ?? null,
+        right_amount: data.rightAmount ?? null,
+        total_amount: data.totalAmount ?? null,
+        amount_unit: data.amountUnit ?? null,
+        notes: data.notes ?? null,
       })
-      .returning();
+      .select(pumpingSelect)
+      .single();
+
+    if (error) throw new Error(error.message);
 
     revalidatePath("/");
     revalidatePath("/history");
@@ -730,14 +1074,36 @@ export async function updatePumping(
   }
 ) {
   await checkBabyAccess(babyId);
-  await db.update(pumpings).set(data).where(eq(pumpings.id, id));
+
+  const supabase = await createClient();
+  const updateData: Record<string, unknown> = {};
+  if (data.startTime !== undefined) updateData.start_time = data.startTime;
+  if (data.endTime !== undefined) updateData.end_time = data.endTime;
+  if (data.leftAmount !== undefined) updateData.left_amount = data.leftAmount;
+  if (data.rightAmount !== undefined)
+    updateData.right_amount = data.rightAmount;
+  if (data.totalAmount !== undefined)
+    updateData.total_amount = data.totalAmount;
+  if (data.amountUnit !== undefined) updateData.amount_unit = data.amountUnit;
+  if (data.notes !== undefined) updateData.notes = data.notes;
+
+  const { error } = await supabase
+    .from("pumpings")
+    .update(updateData)
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+
   revalidatePath("/");
   revalidatePath("/history");
 }
 
 export async function deletePumping(id: string, babyId: string) {
   await checkBabyAccess(babyId);
-  await db.delete(pumpings).where(eq(pumpings.id, id));
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("pumpings").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+
   revalidatePath("/");
   revalidatePath("/history");
 }
@@ -754,7 +1120,21 @@ export async function createMedicine(data: {
 }) {
   await checkBabyAccess(data.babyId);
 
-  const [result] = await db.insert(medicines).values(data).returning();
+  const supabase = await createClient();
+  const { data: result, error } = await supabase
+    .from("medicines")
+    .insert({
+      baby_id: data.babyId,
+      time: data.time,
+      name: data.name ?? null,
+      amount: data.amount ?? null,
+      unit: data.unit ?? null,
+      notes: data.notes ?? null,
+    })
+    .select(medicineSelect)
+    .single();
+
+  if (error) throw new Error(error.message);
   revalidatePath("/");
   revalidatePath("/history");
   return result;
@@ -772,14 +1152,32 @@ export async function updateMedicine(
   }
 ) {
   await checkBabyAccess(babyId);
-  await db.update(medicines).set(data).where(eq(medicines.id, id));
+
+  const supabase = await createClient();
+  const updateData: Record<string, unknown> = {};
+  if (data.time !== undefined) updateData.time = data.time;
+  if (data.name !== undefined) updateData.name = data.name;
+  if (data.amount !== undefined) updateData.amount = data.amount;
+  if (data.unit !== undefined) updateData.unit = data.unit;
+  if (data.notes !== undefined) updateData.notes = data.notes;
+
+  const { error } = await supabase
+    .from("medicines")
+    .update(updateData)
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+
   revalidatePath("/");
   revalidatePath("/history");
 }
 
 export async function deleteMedicine(id: string, babyId: string) {
   await checkBabyAccess(babyId);
-  await db.delete(medicines).where(eq(medicines.id, id));
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("medicines").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+
   revalidatePath("/");
   revalidatePath("/history");
 }
@@ -795,7 +1193,20 @@ export async function createTemperature(data: {
 }) {
   await checkBabyAccess(data.babyId);
 
-  const [result] = await db.insert(temperatures).values(data).returning();
+  const supabase = await createClient();
+  const { data: result, error } = await supabase
+    .from("temperatures")
+    .insert({
+      baby_id: data.babyId,
+      time: data.time,
+      value: data.value,
+      unit: data.unit,
+      notes: data.notes ?? null,
+    })
+    .select(temperatureSelect)
+    .single();
+
+  if (error) throw new Error(error.message);
   revalidatePath("/");
   revalidatePath("/history");
   return result;
@@ -812,14 +1223,31 @@ export async function updateTemperature(
   }
 ) {
   await checkBabyAccess(babyId);
-  await db.update(temperatures).set(data).where(eq(temperatures.id, id));
+
+  const supabase = await createClient();
+  const updateData: Record<string, unknown> = {};
+  if (data.time !== undefined) updateData.time = data.time;
+  if (data.value !== undefined) updateData.value = data.value;
+  if (data.unit !== undefined) updateData.unit = data.unit;
+  if (data.notes !== undefined) updateData.notes = data.notes;
+
+  const { error } = await supabase
+    .from("temperatures")
+    .update(updateData)
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+
   revalidatePath("/");
   revalidatePath("/history");
 }
 
 export async function deleteTemperature(id: string, babyId: string) {
   await checkBabyAccess(babyId);
-  await db.delete(temperatures).where(eq(temperatures.id, id));
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("temperatures").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+
   revalidatePath("/");
   revalidatePath("/history");
 }
@@ -855,7 +1283,20 @@ export async function createActivity(
     { ...options, babyName: baby.name }
   );
 
-  const [result] = await db.insert(activities).values(data).returning();
+  const supabase = await createClient();
+  const { data: result, error } = await supabase
+    .from("activities")
+    .insert({
+      baby_id: data.babyId,
+      start_time: data.startTime,
+      end_time: data.endTime ?? null,
+      type: data.type,
+      notes: data.notes ?? null,
+    })
+    .select(activitySelect)
+    .single();
+
+  if (error) throw new Error(error.message);
   revalidatePath("/");
   revalidatePath("/history");
   return result;
@@ -867,19 +1308,44 @@ export async function updateActivity(
   data: {
     startTime?: Date;
     endTime?: Date;
-    type?: "bath" | "tummy_time" | "story_time" | "screen_time" | "skin_to_skin" | "play" | "outdoor" | "other";
+    type?:
+      | "bath"
+      | "tummy_time"
+      | "story_time"
+      | "screen_time"
+      | "skin_to_skin"
+      | "play"
+      | "outdoor"
+      | "other";
     notes?: string;
   }
 ) {
   await checkBabyAccess(babyId);
-  await db.update(activities).set(data).where(eq(activities.id, id));
+
+  const supabase = await createClient();
+  const updateData: Record<string, unknown> = {};
+  if (data.startTime !== undefined) updateData.start_time = data.startTime;
+  if (data.endTime !== undefined) updateData.end_time = data.endTime;
+  if (data.type !== undefined) updateData.type = data.type;
+  if (data.notes !== undefined) updateData.notes = data.notes;
+
+  const { error } = await supabase
+    .from("activities")
+    .update(updateData)
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+
   revalidatePath("/");
   revalidatePath("/history");
 }
 
 export async function deleteActivity(id: string, babyId: string) {
   await checkBabyAccess(babyId);
-  await db.delete(activities).where(eq(activities.id, id));
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("activities").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+
   revalidatePath("/");
   revalidatePath("/history");
 }
@@ -900,7 +1366,25 @@ export async function createGrowthLog(data: {
 }) {
   await checkBabyAccess(data.babyId);
 
-  const [result] = await db.insert(growthLogs).values(data).returning();
+  const supabase = await createClient();
+  const { data: result, error } = await supabase
+    .from("growth_logs")
+    .insert({
+      baby_id: data.babyId,
+      date: data.date,
+      time: data.time ?? null,
+      weight: data.weight ?? null,
+      weight_unit: data.weightUnit ?? null,
+      height: data.height ?? null,
+      height_unit: data.heightUnit ?? null,
+      head_circumference: data.headCircumference ?? null,
+      head_unit: data.headUnit ?? null,
+      notes: data.notes ?? null,
+    })
+    .select(growthSelect)
+    .single();
+
+  if (error) throw new Error(error.message);
   revalidatePath("/");
   revalidatePath("/history");
   return result;
@@ -922,14 +1406,37 @@ export async function updateGrowthLog(
   }
 ) {
   await checkBabyAccess(babyId);
-  await db.update(growthLogs).set(data).where(eq(growthLogs.id, id));
+
+  const supabase = await createClient();
+  const updateData: Record<string, unknown> = {};
+  if (data.date !== undefined) updateData.date = data.date;
+  if (data.time !== undefined) updateData.time = data.time;
+  if (data.weight !== undefined) updateData.weight = data.weight;
+  if (data.weightUnit !== undefined) updateData.weight_unit = data.weightUnit;
+  if (data.height !== undefined) updateData.height = data.height;
+  if (data.heightUnit !== undefined) updateData.height_unit = data.heightUnit;
+  if (data.headCircumference !== undefined)
+    updateData.head_circumference = data.headCircumference;
+  if (data.headUnit !== undefined) updateData.head_unit = data.headUnit;
+  if (data.notes !== undefined) updateData.notes = data.notes;
+
+  const { error } = await supabase
+    .from("growth_logs")
+    .update(updateData)
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+
   revalidatePath("/");
   revalidatePath("/history");
 }
 
 export async function deleteGrowthLog(id: string, babyId: string) {
   await checkBabyAccess(babyId);
-  await db.delete(growthLogs).where(eq(growthLogs.id, id));
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("growth_logs").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+
   revalidatePath("/");
   revalidatePath("/history");
 }
@@ -946,7 +1453,21 @@ export async function createSolid(data: {
 }) {
   await checkBabyAccess(data.babyId);
 
-  const [result] = await db.insert(solids).values(data).returning();
+  const supabase = await createClient();
+  const { data: result, error } = await supabase
+    .from("solids")
+    .insert({
+      baby_id: data.babyId,
+      time: data.time,
+      foods: data.foods ?? null,
+      reaction: data.reaction ?? null,
+      photo_url: data.photoUrl ?? null,
+      notes: data.notes ?? null,
+    })
+    .select(solidsSelect)
+    .single();
+
+  if (error) throw new Error(error.message);
   revalidatePath("/");
   revalidatePath("/history");
   return result;
@@ -963,14 +1484,31 @@ export async function updateSolid(
   }
 ) {
   await checkBabyAccess(babyId);
-  await db.update(solids).set(data).where(eq(solids.id, id));
+
+  const supabase = await createClient();
+  const updateData: Record<string, unknown> = {};
+  if (data.time !== undefined) updateData.time = data.time;
+  if (data.foods !== undefined) updateData.foods = data.foods;
+  if (data.reaction !== undefined) updateData.reaction = data.reaction;
+  if (data.notes !== undefined) updateData.notes = data.notes;
+
+  const { error } = await supabase
+    .from("solids")
+    .update(updateData)
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+
   revalidatePath("/");
   revalidatePath("/history");
 }
 
 export async function deleteSolid(id: string, babyId: string) {
   await checkBabyAccess(babyId);
-  await db.delete(solids).where(eq(solids.id, id));
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("solids").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+
   revalidatePath("/");
   revalidatePath("/history");
 }
@@ -996,15 +1534,25 @@ export async function getActivityConflicts(
   );
 }
 
-export type TimeframeOption = '24h' | '1d' | '7d' | '30d' | { start: Date; end: Date };
+export type TimeframeOption =
+  | "24h"
+  | "1d"
+  | "7d"
+  | "30d"
+  | { start: Date; end: Date };
 
-export async function getTimelineEntries(babyId: string, timeframe: TimeframeOption = '7d') {
+export async function getTimelineEntries(
+  babyId: string,
+  timeframe: TimeframeOption = "7d"
+) {
   await checkBabyAccess(babyId);
+
+  const supabase = await createClient();
 
   let startDate: Date;
   let endDate: Date;
 
-  if (typeof timeframe === 'object' && 'start' in timeframe) {
+  if (typeof timeframe === "object" && "start" in timeframe) {
     // Custom date range
     startDate = new Date(timeframe.start);
     startDate.setHours(0, 0, 0, 0);
@@ -1016,18 +1564,18 @@ export async function getTimelineEntries(babyId: string, timeframe: TimeframeOpt
     endDate.setHours(23, 59, 59, 999);
 
     switch (timeframe) {
-      case '24h':
+      case "24h":
         startDate = new Date(endDate.getTime() - 24 * 60 * 60 * 1000);
         break;
-      case '1d':
+      case "1d":
         startDate = new Date(endDate);
         startDate.setHours(0, 0, 0, 0);
         break;
-      case '7d':
+      case "7d":
         startDate = new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000);
         startDate.setHours(0, 0, 0, 0);
         break;
-      case '30d':
+      case "30d":
         startDate = new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
         startDate.setHours(0, 0, 0, 0);
         break;
@@ -1038,118 +1586,141 @@ export async function getTimelineEntries(babyId: string, timeframe: TimeframeOpt
     }
   }
 
+  const startDateStr = startDate.toISOString();
+  const endDateStr = endDate.toISOString();
+  const startDateOnly = startDateStr.split("T")[0];
+  const endDateOnly = endDateStr.split("T")[0];
+
   const [
-    feedingsData,
-    sleepData,
-    diapersData,
-    pottyData,
-    pumpingsData,
-    medicinesData,
-    temperaturesData,
-    activitiesData,
-    growthData,
-    solidsData,
+    feedingsRes,
+    sleepRes,
+    diapersRes,
+    pottyRes,
+    pumpingsRes,
+    medicinesRes,
+    temperaturesRes,
+    activitiesRes,
+    growthRes,
+    solidsRes,
   ] = await Promise.all([
-    db.query.feedings.findMany({
-      where: and(
-        eq(feedings.babyId, babyId),
-        gte(feedings.startTime, startDate),
-        lte(feedings.startTime, endDate)
-      ),
-      orderBy: [desc(feedings.startTime)],
-    }),
-    db.query.sleepLogs.findMany({
-      where: and(
-        eq(sleepLogs.babyId, babyId),
-        gte(sleepLogs.startTime, startDate),
-        lte(sleepLogs.startTime, endDate)
-      ),
-      orderBy: [desc(sleepLogs.startTime)],
-    }),
-    db.query.diapers.findMany({
-      where: and(
-        eq(diapers.babyId, babyId),
-        gte(diapers.time, startDate),
-        lte(diapers.time, endDate)
-      ),
-      orderBy: [desc(diapers.time)],
-    }),
-    db.query.pottyLogs.findMany({
-      where: and(
-        eq(pottyLogs.babyId, babyId),
-        gte(pottyLogs.time, startDate),
-        lte(pottyLogs.time, endDate)
-      ),
-      orderBy: [desc(pottyLogs.time)],
-    }),
-    db.query.pumpings.findMany({
-      where: and(
-        eq(pumpings.babyId, babyId),
-        gte(pumpings.startTime, startDate),
-        lte(pumpings.startTime, endDate)
-      ),
-      orderBy: [desc(pumpings.startTime)],
-    }),
-    db.query.medicines.findMany({
-      where: and(
-        eq(medicines.babyId, babyId),
-        gte(medicines.time, startDate),
-        lte(medicines.time, endDate)
-      ),
-      orderBy: [desc(medicines.time)],
-    }),
-    db.query.temperatures.findMany({
-      where: and(
-        eq(temperatures.babyId, babyId),
-        gte(temperatures.time, startDate),
-        lte(temperatures.time, endDate)
-      ),
-      orderBy: [desc(temperatures.time)],
-    }),
-    db.query.activities.findMany({
-      where: and(
-        eq(activities.babyId, babyId),
-        gte(activities.startTime, startDate),
-        lte(activities.startTime, endDate)
-      ),
-      orderBy: [desc(activities.startTime)],
-    }),
-    db.query.growthLogs.findMany({
-      where: and(
-        eq(growthLogs.babyId, babyId),
-        gte(growthLogs.date, startDate.toISOString().split("T")[0]),
-        lte(growthLogs.date, endDate.toISOString().split("T")[0])
-      ),
-      orderBy: [desc(growthLogs.date)],
-    }),
-    db.query.solids.findMany({
-      where: and(
-        eq(solids.babyId, babyId),
-        gte(solids.time, startDate),
-        lte(solids.time, endDate)
-      ),
-      orderBy: [desc(solids.time)],
-    }),
+    supabase
+      .from("feedings")
+      .select(feedingSelect)
+      .eq("baby_id", babyId)
+      .gte("start_time", startDateStr)
+      .lte("start_time", endDateStr)
+      .order("start_time", { ascending: false }),
+    supabase
+      .from("sleep_logs")
+      .select(sleepSelect)
+      .eq("baby_id", babyId)
+      .gte("start_time", startDateStr)
+      .lte("start_time", endDateStr)
+      .order("start_time", { ascending: false }),
+    supabase
+      .from("diapers")
+      .select(diaperSelect)
+      .eq("baby_id", babyId)
+      .gte("time", startDateStr)
+      .lte("time", endDateStr)
+      .order("time", { ascending: false }),
+    supabase
+      .from("potty_logs")
+      .select(pottySelect)
+      .eq("baby_id", babyId)
+      .gte("time", startDateStr)
+      .lte("time", endDateStr)
+      .order("time", { ascending: false }),
+    supabase
+      .from("pumpings")
+      .select(pumpingSelect)
+      .eq("baby_id", babyId)
+      .gte("start_time", startDateStr)
+      .lte("start_time", endDateStr)
+      .order("start_time", { ascending: false }),
+    supabase
+      .from("medicines")
+      .select(medicineSelect)
+      .eq("baby_id", babyId)
+      .gte("time", startDateStr)
+      .lte("time", endDateStr)
+      .order("time", { ascending: false }),
+    supabase
+      .from("temperatures")
+      .select(temperatureSelect)
+      .eq("baby_id", babyId)
+      .gte("time", startDateStr)
+      .lte("time", endDateStr)
+      .order("time", { ascending: false }),
+    supabase
+      .from("activities")
+      .select(activitySelect)
+      .eq("baby_id", babyId)
+      .gte("start_time", startDateStr)
+      .lte("start_time", endDateStr)
+      .order("start_time", { ascending: false }),
+    supabase
+      .from("growth_logs")
+      .select(growthSelect)
+      .eq("baby_id", babyId)
+      .gte("date", startDateOnly)
+      .lte("date", endDateOnly)
+      .order("date", { ascending: false }),
+    supabase
+      .from("solids")
+      .select(solidsSelect)
+      .eq("baby_id", babyId)
+      .gte("time", startDateStr)
+      .lte("time", endDateStr)
+      .order("time", { ascending: false }),
   ]);
+
+  if (feedingsRes.error) throw new Error(feedingsRes.error.message);
+  if (sleepRes.error) throw new Error(sleepRes.error.message);
+  if (diapersRes.error) throw new Error(diapersRes.error.message);
+  if (pottyRes.error) throw new Error(pottyRes.error.message);
+  if (pumpingsRes.error) throw new Error(pumpingsRes.error.message);
+  if (medicinesRes.error) throw new Error(medicinesRes.error.message);
+  if (temperaturesRes.error) throw new Error(temperaturesRes.error.message);
+  if (activitiesRes.error) throw new Error(activitiesRes.error.message);
+  if (growthRes.error) throw new Error(growthRes.error.message);
+  if (solidsRes.error) throw new Error(solidsRes.error.message);
+
+  const feedingsData = feedingsRes.data ?? [];
+  const sleepData = sleepRes.data ?? [];
+  const diapersData = diapersRes.data ?? [];
+  const pottyData = pottyRes.data ?? [];
+  const pumpingsData = pumpingsRes.data ?? [];
+  const medicinesData = medicinesRes.data ?? [];
+  const temperaturesData = temperaturesRes.data ?? [];
+  const activitiesData = activitiesRes.data ?? [];
+  const growthData = growthRes.data ?? [];
+  const solidsData = solidsRes.data ?? [];
 
   // Combine and sort all entries
   const allEntries = [
     ...feedingsData.map((f) => ({
       ...f,
       entryType: "feeding" as const,
-      time: f.startTime,
+      startTime: (f as any).startTime ?? (f as any).start_time,
+      endTime: (f as any).endTime ?? (f as any).end_time ?? null,
+      time: (f as any).startTime ?? (f as any).start_time,
     })),
     ...sleepData.map((s) => ({
       ...s,
       entryType: "sleep" as const,
-      time: s.startTime,
+      startTime: (s as any).startTime ?? (s as any).start_time,
+      endTime: (s as any).endTime ?? (s as any).end_time ?? null,
+      time: (s as any).startTime ?? (s as any).start_time,
     })),
     ...diapersData.map((d) => ({ ...d, entryType: "diaper" as const })),
     ...pottyData.map((p) => ({ ...p, entryType: "potty" as const })),
     ...pumpingsData.map((p) => ({
       ...p,
       entryType: "pumping" as const,
-      time: p.startTime,
+      startTime: (p as any).startTime ?? (p as any).start_time,
+      endTime: (p as any).endTime ?? (p as any).end_time ?? null,
+      time: (p as any).startTime ?? (p as any).start_time,
     })),
     ...medicinesData.map((m) => ({ ...m, entryType: "medicine" as const })),
     ...temperaturesData.map((t) => ({
@@ -1159,7 +1730,9 @@ export async function getTimelineEntries(babyId: string, timeframe: TimeframeOpt
     ...activitiesData.map((a) => ({
       ...a,
       entryType: "activity" as const,
-      time: a.startTime,
+      startTime: (a as any).startTime ?? (a as any).start_time,
+      endTime: (a as any).endTime ?? (a as any).end_time ?? null,
+      time: (a as any).startTime ?? (a as any).start_time,
     })),
     ...growthData.map((g) => ({
       ...g,

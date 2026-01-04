@@ -14,7 +14,11 @@ import {
   SaveButton,
   LabeledRow,
 } from "@/components/tracking/shared";
-import { createGrowthLog, updateGrowthLog, deleteGrowthLog } from "@/lib/actions/tracking";
+import {
+  createGrowthLog,
+  updateGrowthLog,
+  deleteGrowthLog,
+} from "@/lib/actions/tracking";
 import { formatDateLocal } from "@/lib/utils";
 
 export default function GrowthPage() {
@@ -23,7 +27,7 @@ export default function GrowthPage() {
   const babyId = params.babyId as string;
   const entryId = params.entryId as string;
 
-  const isEditMode = !!entryId && entryId !== 'new';
+  const isEditMode = !!entryId && entryId !== "new";
 
   const [dateTime, setDateTime] = useState(new Date());
   const [weight, setWeight] = useState<string>("");
@@ -44,22 +48,22 @@ export default function GrowthPage() {
       setLoadingEntry(true);
       try {
         const { getTimelineEntries } = await import("@/lib/actions/tracking");
-        const entries = await getTimelineEntries(babyId, '7d');
-        const entry = entries.find(e => e.id === entryId);
+        const entries = await getTimelineEntries(babyId, "7d");
+        const entry = entries.find((e) => e.id === entryId);
 
-        if (entry && entry.entryType === 'growth') {
+        if (entry && entry.entryType === "growth") {
           setDateTime(new Date(entry.time));
           setWeight(entry.weight?.toString() || "");
           setWeightUnit((entry.weightUnit as "lb" | "kg") || "lb");
           setHeight(entry.height?.toString() || "");
-          setHeightUnit((entry.heightUnit as "in" | "cm") || "in");
+          setHeightUnit((entry.headUnit as "in" | "cm") || "in");
           setHeadCircumference(entry.headCircumference?.toString() || "");
           setHeadUnit((entry.headUnit as "in" | "cm") || "in");
           setNotes(entry.notes || "");
         }
       } catch (error) {
-        console.error('Failed to load entry:', error);
-        toast.error('Failed to load entry');
+        console.error("Failed to load entry:", error);
+        toast.error("Failed to load entry");
       } finally {
         setLoadingEntry(false);
       }
@@ -142,7 +146,9 @@ export default function GrowthPage() {
   if (loadingEntry) {
     return (
       <TrackingContainer>
-        <TrackingHeader title={isEditMode ? "Edit growth data" : "Add growth data"} />
+        <TrackingHeader
+          title={isEditMode ? "Edit growth data" : "Add growth data"}
+        />
         <div className="flex items-center justify-center py-12">
           <div className="text-muted-foreground">Loading entry...</div>
         </div>

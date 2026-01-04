@@ -17,7 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { updateBaby } from "@/lib/actions/babies";
-import type { Baby } from "@/lib/db/schema";
+import type { Baby } from "@/lib/types/db";
 
 interface EditBabyDialogProps {
   open: boolean;
@@ -121,4 +121,3 @@ export function EditBabyDialog({
     </Dialog>
   );
 }
-

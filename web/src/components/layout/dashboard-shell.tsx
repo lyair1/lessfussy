@@ -4,7 +4,6 @@ import * as React from "react";
 import { useState, createContext, useContext, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { UserButton } from "@clerk/nextjs";
 import {
   Baby,
   Activity,
@@ -24,7 +23,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
-import type { User, Baby as BabyType } from "@/lib/db/schema";
+import type { User, Baby as BabyType } from "@/lib/types/db";
 
 type BabyWithMeta = BabyType & { isShared: boolean; role: string };
 
@@ -69,14 +68,18 @@ interface DashboardShellProps {
   children: React.ReactNode;
 }
 
-export function DashboardShell({ user, babies, children }: DashboardShellProps) {
+export function DashboardShell({
+  user,
+  babies,
+  children,
+}: DashboardShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  
+
   // Get baby ID from URL
   const babyIdFromUrl = getBabyIdFromPath(pathname);
-  
+
   // Find the baby from URL or default to first baby
   const [selectedBaby, setSelectedBaby] = useState<BabyWithMeta | null>(() => {
     if (babyIdFromUrl) {
@@ -98,10 +101,13 @@ export function DashboardShell({ user, babies, children }: DashboardShellProps) 
   // Handle baby selection from dropdown - navigate to that baby's page
   const handleBabySelect = (baby: BabyWithMeta) => {
     setSelectedBaby(baby);
-    
+
     // If we're on a baby-specific route, navigate to the same route for the new baby
     if (babyIdFromUrl) {
-      const newPath = pathname.replace(`/baby/${babyIdFromUrl}`, `/baby/${baby.id}`);
+      const newPath = pathname.replace(
+        `/baby/${babyIdFromUrl}`,
+        `/baby/${baby.id}`
+      );
       router.push(newPath);
     } else {
       // If we're on a non-baby route (like /), navigate to the baby's dashboard
@@ -110,7 +116,7 @@ export function DashboardShell({ user, babies, children }: DashboardShellProps) 
   };
 
   const navItems = getNavItems(selectedBaby?.id || null);
-  
+
   // Check if current path matches nav item (handle both exact and prefix matches)
   const isActiveNav = (href: string) => {
     if (href === "/" && pathname === "/") return true;
@@ -118,7 +124,7 @@ export function DashboardShell({ user, babies, children }: DashboardShellProps) 
       // For baby routes, check if it's the same baby and same sub-route
       const hrefParts = href.split("/");
       const pathParts = pathname.split("/");
-      
+
       // Match /baby/[id] exactly or /baby/[id]/history exactly
       if (hrefParts.length === 3 && pathParts.length === 3) {
         // Both are /baby/[id] - home
@@ -144,7 +150,10 @@ export function DashboardShell({ user, babies, children }: DashboardShellProps) 
           <div className="w-full flex h-14 items-center justify-between px-4 md:px-6">
             {/* Logo and baby selector */}
             <div className="flex items-center gap-3">
-              <Link href={selectedBaby ? `/baby/${selectedBaby.id}` : "/"} className="flex items-center gap-2">
+              <Link
+                href={selectedBaby ? `/baby/${selectedBaby.id}` : "/"}
+                className="flex items-center gap-2"
+              >
                 <svg
                   width="28"
                   height="28"
@@ -153,21 +162,78 @@ export function DashboardShell({ user, babies, children }: DashboardShellProps) 
                   aria-hidden="true"
                 >
                   {/* Baby face */}
-                  <circle cx="50" cy="50" r="45" fill="currentColor" opacity="0.15" />
-                  <circle cx="50" cy="50" r="40" fill="none" stroke="currentColor" strokeWidth="4" />
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="45"
+                    fill="currentColor"
+                    opacity="0.15"
+                  />
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="40"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
                   {/* Happy closed eyes (sleeping/content) */}
-                  <path d="M30 42 Q35 48 40 42" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
-                  <path d="M60 42 Q65 48 70 42" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+                  <path
+                    d="M30 42 Q35 48 40 42"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M60 42 Q65 48 70 42"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                    strokeLinecap="round"
+                  />
                   {/* Rosy cheeks */}
-                  <circle cx="25" cy="55" r="6" fill="currentColor" opacity="0.3" />
-                  <circle cx="75" cy="55" r="6" fill="currentColor" opacity="0.3" />
+                  <circle
+                    cx="25"
+                    cy="55"
+                    r="6"
+                    fill="currentColor"
+                    opacity="0.3"
+                  />
+                  <circle
+                    cx="75"
+                    cy="55"
+                    r="6"
+                    fill="currentColor"
+                    opacity="0.3"
+                  />
                   {/* Big content smile */}
-                  <path d="M35 60 Q50 78 65 60" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+                  <path
+                    d="M35 60 Q50 78 65 60"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                    strokeLinecap="round"
+                  />
                   {/* Tiny hair curl */}
-                  <path d="M50 10 Q55 5 52 15" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-                  <path d="M45 12 Q40 6 44 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  <path
+                    d="M50 10 Q55 5 52 15"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M45 12 Q40 6 44 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
                 </svg>
-                <span className="text-xl font-bold text-primary">LessFussy</span>
+                <span className="text-xl font-bold text-primary">
+                  LessFussy
+                </span>
               </Link>
 
               {babies.length > 0 && (
@@ -178,7 +244,9 @@ export function DashboardShell({ user, babies, children }: DashboardShellProps) 
                       className="flex items-center gap-2 px-2"
                     >
                       <Avatar className="h-7 w-7">
-                        <AvatarImage src={selectedBaby?.photoUrl || undefined} />
+                        <AvatarImage
+                          src={selectedBaby?.photoUrl || undefined}
+                        />
                         <AvatarFallback className="bg-accent text-accent-foreground text-xs">
                           {selectedBaby?.name?.charAt(0) || "?"}
                         </AvatarFallback>
@@ -243,13 +311,11 @@ export function DashboardShell({ user, babies, children }: DashboardShellProps) 
 
             {/* Right side */}
             <div className="flex items-center gap-2">
-              <UserButton
-                appearance={{
-                  elements: {
-                    avatarBox: "h-8 w-8",
-                  },
-                }}
-              />
+              <form action="/auth/sign-out" method="post">
+                <Button variant="ghost" size="sm">
+                  Sign out
+                </Button>
+              </form>
 
               {/* Mobile menu button */}
               <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
@@ -271,7 +337,9 @@ export function DashboardShell({ user, babies, children }: DashboardShellProps) 
                           onClick={() => setMobileMenuOpen(false)}
                         >
                           <Button
-                            variant={isActiveNav(item.href) ? "secondary" : "ghost"}
+                            variant={
+                              isActiveNav(item.href) ? "secondary" : "ghost"
+                            }
                             className="w-full justify-start gap-3 mb-1"
                           >
                             <item.icon className="h-5 w-5" />

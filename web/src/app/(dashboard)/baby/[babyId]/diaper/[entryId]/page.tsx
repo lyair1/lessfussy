@@ -15,12 +15,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   TrackingContainer,
   TrackingHeader,
-  TrackingContent,
   DateTimeRow,
   NotesInput,
   SaveButton,
 } from "@/components/tracking/shared";
-import { createDiaper, createPottyLog, updateDiaper, updatePottyLog, deleteDiaper, deletePottyLog } from "@/lib/actions/tracking";
+import {
+  createDiaper,
+  createPottyLog,
+  updateDiaper,
+  updatePottyLog,
+  deleteDiaper,
+  deletePottyLog,
+} from "@/lib/actions/tracking";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -31,13 +37,28 @@ const diaperOptions = [
   { value: "pee", label: "Pee", icon: Droplet, color: "text-cyan" },
   { value: "poo", label: "Poo", icon: Cloud, color: "text-yellow" },
   { value: "mixed", label: "Mixed", icon: CloudRain, color: "text-coral" },
-  { value: "dry", label: "Dry", icon: CircleDashed, color: "text-muted-foreground" },
+  {
+    value: "dry",
+    label: "Dry",
+    icon: CircleDashed,
+    color: "text-muted-foreground",
+  },
 ];
 
 const pottyOptions = [
-  { value: "sat_but_dry", label: "Sat but dry", icon: CircleDashed, color: "text-muted-foreground" },
+  {
+    value: "sat_but_dry",
+    label: "Sat but dry",
+    icon: CircleDashed,
+    color: "text-muted-foreground",
+  },
   { value: "success", label: "Potty", icon: Toilet, color: "text-primary" },
-  { value: "accident", label: "Accident", icon: AlertTriangle, color: "text-coral" },
+  {
+    value: "accident",
+    label: "Accident",
+    icon: AlertTriangle,
+    color: "text-coral",
+  },
 ];
 
 export default function DiaperPage() {
@@ -46,7 +67,7 @@ export default function DiaperPage() {
   const babyId = params.babyId as string;
   const entryId = params.entryId as string;
 
-  const isEditMode = !!entryId && entryId !== 'new';
+  const isEditMode = !!entryId && entryId !== "new";
 
   const [activeTab, setActiveTab] = useState<"diaper" | "potty">("diaper");
   const [time, setTime] = useState(new Date());
@@ -64,24 +85,24 @@ export default function DiaperPage() {
       setLoadingEntry(true);
       try {
         const { getTimelineEntries } = await import("@/lib/actions/tracking");
-        const entries = await getTimelineEntries(babyId, '7d');
-        const entry = entries.find(e => e.id === entryId);
+        const entries = await getTimelineEntries(babyId, "7d");
+        const entry = entries.find((e) => e.id === entryId);
 
         if (entry) {
           setTime(new Date(entry.time));
           setNotes(entry.notes || "");
 
-          if (entry.entryType === 'diaper') {
-            setActiveTab('diaper');
+          if (entry.entryType === "diaper") {
+            setActiveTab("diaper");
             setDiaperType(entry.type);
-          } else if (entry.entryType === 'potty') {
-            setActiveTab('potty');
+          } else if (entry.entryType === "potty") {
+            setActiveTab("potty");
             setPottyType(entry.type);
           }
         }
       } catch (error) {
-        console.error('Failed to load entry:', error);
-        toast.error('Failed to load entry');
+        console.error("Failed to load entry:", error);
+        toast.error("Failed to load entry");
       } finally {
         setLoadingEntry(false);
       }
@@ -133,7 +154,7 @@ export default function DiaperPage() {
             babyId,
             time,
             type: diaperType!,
-            notes: notes || undefined,
+            notes: notes || null,
           });
           toast.success("Diaper logged!");
         } else {
@@ -190,7 +211,13 @@ export default function DiaperPage() {
 
   return (
     <TrackingContainer>
-      <TrackingHeader title={isEditMode ? `Edit ${activeTab === "diaper" ? "diaper" : "potty"}` : `Add ${activeTab === "diaper" ? "diaper" : "potty"}`} />
+      <TrackingHeader
+        title={
+          isEditMode
+            ? `Edit ${activeTab === "diaper" ? "diaper" : "potty"}`
+            : `Add ${activeTab === "diaper" ? "diaper" : "potty"}`
+        }
+      />
 
       {/* Tabs */}
       <Tabs
@@ -259,7 +286,9 @@ export default function DiaperPage() {
                 )}
               >
                 <opt.icon className={cn("h-8 w-8", opt.color)} />
-                <span className="text-xs font-medium text-center px-1">{opt.label}</span>
+                <span className="text-xs font-medium text-center px-1">
+                  {opt.label}
+                </span>
               </button>
             ))}
           </div>
@@ -290,7 +319,9 @@ export default function DiaperPage() {
           <Button
             className="flex-1 h-14 text-lg rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
             onClick={handleSave}
-            disabled={saving || (activeTab === "diaper" ? !diaperType : !pottyType)}
+            disabled={
+              saving || (activeTab === "diaper" ? !diaperType : !pottyType)
+            }
           >
             {saving ? "Saving..." : "Save"}
           </Button>
@@ -307,4 +338,3 @@ export default function DiaperPage() {
     </TrackingContainer>
   );
 }
-

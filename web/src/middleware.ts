@@ -1,7 +1,8 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { NextResponse, type NextRequest } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 
 // Public routes - marketing site, blog, legal pages, auth, and webhooks
-const isPublicRoute = createRouteMatcher([
+const publicRoutes = [
   "/",
   "/features",
   "/pricing",
@@ -12,25 +13,63 @@ const isPublicRoute = createRouteMatcher([
   "/cookies",
   "/sign-in(.*)",
   "/sign-up(.*)",
-  "/api/webhooks(.*)",
-]);
+];
 
 // Protected routes - the actual app
-const isProtectedRoute = createRouteMatcher([
+const protectedRoutes = [
   "/baby(.*)",
   "/babies(.*)",
   "/dashboard(.*)",
   "/history(.*)",
   "/settings(.*)",
   "/track(.*)",
-]);
+];
 
-export default clerkMiddleware(async (auth, request) => {
-  // Protect app routes
-  if (isProtectedRoute(request)) {
-    await auth.protect();
+function matches(pathname: string, patterns: string[]) {
+  return patterns.some((pattern) => {
+    const regex = new RegExp(`^${pattern}$`);
+    return regex.test(pathname);
+  });
+}
+
+export default async function middleware(request: NextRequest) {
+  const response = NextResponse.next();
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options);
+          });
+        },
+      },
+    }
+  );
+
+  await supabase.auth.getUser();
+
+  const pathname = request.nextUrl.pathname;
+  if (matches(pathname, protectedRoutes) && !matches(pathname, publicRoutes)) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/sign-in";
+      url.searchParams.set("redirect", pathname);
+      return NextResponse.redirect(url);
+    }
   }
-});
+
+  return response;
+}
 
 export const config = {
   matcher: [

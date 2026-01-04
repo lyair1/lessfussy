@@ -120,25 +120,27 @@ export default function SleepPage() {
         const entry = entries.find((e) => e.id === entryId);
 
         if (entry && entry.entryType === "sleep") {
-          setStartTime(new Date(entry.startTime || entry.time));
+          const start = entry.startTime || entry.time;
+          setStartTime(new Date(start));
           setActiveSleepId(entry.id);
 
           // Set end time if it exists
-          if (entry.endTime) {
-            setEndTime(new Date(entry.endTime));
-            const start = new Date(entry.startTime || entry.time);
-            const end = new Date(entry.endTime);
+          const endValue = entry.endTime;
+          if (endValue) {
+            setEndTime(new Date(endValue));
+            const startDate = new Date(start);
+            const endDate = new Date(endValue);
             const elapsed = Math.floor(
-              (end.getTime() - start.getTime()) / 1000
+              (endDate.getTime() - startDate.getTime()) / 1000
             );
             setElapsedSeconds(elapsed);
           }
 
-          setStartMood(entry.startMood || null);
-          setEndMood(entry.endMood || null);
-          setFallAsleepTime(entry.fallAsleepTime || null);
-          setSleepMethod(entry.sleepMethod || null);
-          setWokeUpChild(entry.wokeUpChild || false);
+          setStartMood(entry.startMood ?? null);
+          setEndMood(entry.endMood ?? null);
+          setFallAsleepTime(entry.fallAsleepTime ?? null);
+          setSleepMethod(entry.sleepMethod ?? null);
+          setWokeUpChild(entry.wokeUpChild ?? false);
           setNotes(entry.notes || "");
         }
       } catch (error) {
@@ -168,9 +170,12 @@ export default function SleepPage() {
             (Date.now() - activeStartTime.getTime()) / 1000
           );
           setElapsedSeconds(elapsed);
-          if (active.startMood) setStartMood(active.startMood);
-          if (active.fallAsleepTime) setFallAsleepTime(active.fallAsleepTime);
-          if (active.sleepMethod) setSleepMethod(active.sleepMethod);
+          const startMoodValue = active.startMood;
+          const fallAsleepTimeValue = active.fallAsleepTime;
+          const sleepMethodValue = active.sleepMethod;
+          if (startMoodValue) setStartMood(startMoodValue);
+          if (fallAsleepTimeValue) setFallAsleepTime(fallAsleepTimeValue);
+          if (sleepMethodValue) setSleepMethod(sleepMethodValue);
           if (active.notes) setNotes(active.notes);
         }
       } catch (error) {
@@ -231,9 +236,13 @@ export default function SleepPage() {
             {
               babyId,
               startTime: now,
-              startMood: startMood || undefined,
-              fallAsleepTime: fallAsleepTime || undefined,
-              sleepMethod: sleepMethod || undefined,
+              endTime: null,
+              startMood: startMood ?? null,
+              endMood: null,
+              fallAsleepTime: fallAsleepTime ?? null,
+              sleepMethod: sleepMethod ?? null,
+              wokeUpChild: wokeUpChild ?? null,
+              notes: notes ?? null,
             },
             { allowOverride: true }
           );
@@ -285,12 +294,12 @@ export default function SleepPage() {
         await updateSleepLog(activeSleepId, babyId, {
           startTime: startTime || new Date(),
           endTime: finalEndTime,
-          startMood: startMood || undefined,
-          endMood: endMood || undefined,
-          fallAsleepTime: fallAsleepTime || undefined,
-          sleepMethod: sleepMethod || undefined,
+          startMood: startMood ?? null,
+          endMood: endMood ?? null,
+          fallAsleepTime: fallAsleepTime ?? null,
+          sleepMethod: sleepMethod ?? null,
           wokeUpChild,
-          notes: notes || undefined,
+          notes: notes ?? null,
         });
         toast.success("Sleep updated!");
         router.push(`/baby/${babyId}`);
@@ -304,12 +313,12 @@ export default function SleepPage() {
                   babyId,
                   startTime: startTime || new Date(),
                   endTime: finalEndTime,
-                  startMood: startMood || undefined,
-                  endMood: endMood || undefined,
-                  fallAsleepTime: fallAsleepTime || undefined,
-                  sleepMethod: sleepMethod || undefined,
+                  startMood: startMood ?? null,
+                  endMood: endMood ?? null,
+                  fallAsleepTime: fallAsleepTime ?? null,
+                  sleepMethod: sleepMethod ?? null,
                   wokeUpChild,
-                  notes: notes || undefined,
+                  notes: notes ?? null,
                 },
                 { allowOverride: true }
               );
@@ -323,9 +332,9 @@ export default function SleepPage() {
           if (!activeSleepId) return;
           await updateSleepLog(activeSleepId, babyId, {
             endTime: finalEndTime,
-            endMood: endMood || undefined,
+            endMood: endMood ?? null,
             wokeUpChild,
-            notes: notes || undefined,
+            notes: notes ?? null,
           });
           toast.success("Sleep logged!");
           router.push(`/baby/${babyId}`);
@@ -383,9 +392,13 @@ export default function SleepPage() {
               {
                 babyId,
                 startTime: newStartTime,
-                startMood: startMood || undefined,
-                fallAsleepTime: fallAsleepTime || undefined,
-                sleepMethod: sleepMethod || undefined,
+                endTime: null,
+                startMood: startMood ?? null,
+                endMood: null,
+                fallAsleepTime: fallAsleepTime ?? null,
+                sleepMethod: sleepMethod ?? null,
+                wokeUpChild: wokeUpChild ?? null,
+                notes: notes ?? null,
               },
               { allowOverride: true }
             );
@@ -561,7 +574,7 @@ export default function SleepPage() {
                 setIsManualMode(true);
                 const now = new Date();
                 setStartTime(now);
-                setEndTime(now);
+                setEndTime(new Date(now.getTime() + 60 * 1000));
                 setElapsedSeconds(0);
               }}
             >

@@ -673,7 +673,7 @@ export default function FeedingPage() {
               leftDuration: leftSeconds,
               rightDuration: rightSeconds,
               pausedDuration: 0,
-              notes: notes || undefined,
+              notes: notes || null,
             });
             toast.success("Nursing session updated!");
           } else {
@@ -683,10 +683,16 @@ export default function FeedingPage() {
                 type: "nursing",
                 startTime,
                 endTime,
+                side: null,
                 leftDuration: leftSeconds,
                 rightDuration: rightSeconds,
                 pausedDuration: 0,
-                notes: notes || undefined,
+                lastPersistedAt: null,
+                currentStatus: null,
+                bottleContent: null,
+                amount: null,
+                amountUnit: null,
+                notes: notes || null,
               },
               { allowOverride: true }
             );
@@ -807,7 +813,7 @@ export default function FeedingPage() {
               leftDuration,
               rightDuration,
               pausedDuration,
-              notes: notes || undefined,
+              notes: notes || null,
             });
             toast.success("Nursing session updated!");
             router.push(`/baby/${babyId}`);
@@ -832,6 +838,13 @@ export default function FeedingPage() {
                     {
                       babyId,
                       startTime: endTime,
+                      endTime: null,
+                      startMood: null,
+                      endMood: null,
+                      fallAsleepTime: null,
+                      sleepMethod: null,
+                      wokeUpChild: null,
+                      notes: null,
                     },
                     { allowOverride: true }
                   );
@@ -879,7 +892,7 @@ export default function FeedingPage() {
               bottleContent,
               amount,
               amountUnit,
-              notes: notes || undefined,
+              notes: notes || null,
             });
             toast.success("Bottle feeding updated!");
             router.push(`/baby/${babyId}`);
@@ -893,7 +906,13 @@ export default function FeedingPage() {
                 bottleContent,
                 amount,
                 amountUnit,
-                notes: notes || undefined,
+                side: null,
+                leftDuration: null,
+                rightDuration: null,
+                pausedDuration: null,
+                lastPersistedAt: null,
+                currentStatus: null,
+                notes: notes || null,
               },
               { allowOverride: true }
             );
@@ -908,6 +927,13 @@ export default function FeedingPage() {
                     {
                       babyId,
                       startTime: bottleStartTime,
+                      endTime: null,
+                      startMood: null,
+                      endMood: null,
+                      fallAsleepTime: null,
+                      sleepMethod: null,
+                      wokeUpChild: null,
+                      notes: null,
                     },
                     { allowOverride: true }
                   );

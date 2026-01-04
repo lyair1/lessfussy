@@ -1,45 +1,97 @@
 "use server";
 
-import { auth } from "@clerk/nextjs/server";
-import { db, users, DEFAULT_FAVORITE_ACTIVITIES } from "@/lib/db";
-import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { getUser, requireUserId } from "@/lib/supabase/auth";
+import { createClient } from "@/lib/supabase/server";
+import type { User } from "@/lib/types/db";
+
+const DEFAULT_FAVORITE_ACTIVITIES = ["feeding", "sleep"];
+
+const userSelect =
+  "id,email,firstName:first_name,lastName:last_name,imageUrl:image_url,unitSystem:unit_system,tempUnit:temp_unit,timeFormat:time_format,favoriteActivities:favorite_activities,createdAt:created_at,updatedAt:updated_at";
+
+function normalizeUser(row: any): User {
+  return {
+    id: row.id,
+    email: row.email,
+    firstName: row.firstName ?? row.first_name ?? null,
+    lastName: row.lastName ?? row.last_name ?? null,
+    imageUrl: row.imageUrl ?? row.image_url ?? null,
+    unitSystem: (row.unitSystem ??
+      row.unit_system ??
+      "imperial") as User["unitSystem"],
+    tempUnit: (row.tempUnit ??
+      row.temp_unit ??
+      "fahrenheit") as User["tempUnit"],
+    timeFormat: (row.timeFormat ??
+      row.time_format ??
+      "12h") as User["timeFormat"],
+    favoriteActivities: (row.favoriteActivities ??
+      row.favorite_activities ??
+      null) as User["favoriteActivities"],
+    createdAt: row.createdAt ?? row.created_at,
+    updatedAt: row.updatedAt ?? row.updated_at,
+  };
+}
 
 export async function getCurrentUser() {
-  const { userId } = await auth();
+  const userId = await requireUserId().catch(() => null);
   if (!userId) return null;
 
-  const user = await db.query.users.findFirst({
-    where: eq(users.id, userId),
-  });
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("users")
+    .select(userSelect)
+    .eq("id", userId)
+    .maybeSingle();
 
-  return user;
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  return normalizeUser(data);
 }
 
 export async function ensureUserExists() {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+  const userId = await requireUserId();
 
-  const existingUser = await db.query.users.findFirst({
-    where: eq(users.id, userId),
-  });
+  const supabase = await createClient();
+
+  const { data: existingUser, error: existingError } = await supabase
+    .from("users")
+    .select(userSelect)
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (existingError) throw new Error(existingError.message);
 
   if (!existingUser) {
-    // Create user with default settings if not exists
-    // This handles cases where webhook might not have fired yet
-    const { sessionClaims } = await auth();
-    await db.insert(users).values({
+    const authUser = await getUser();
+
+    const email = authUser?.email ?? "";
+    const metadata = (authUser?.user_metadata ?? {}) as Record<string, unknown>;
+    const firstName = (metadata.first_name as string | undefined) ?? null;
+    const lastName = (metadata.last_name as string | undefined) ?? null;
+    const imageUrl = (metadata.avatar_url as string | undefined) ?? null;
+
+    const { error: insertError } = await supabase.from("users").insert({
       id: userId,
-      email: (sessionClaims?.email as string) ?? "",
-      firstName: (sessionClaims?.first_name as string) ?? null,
-      lastName: (sessionClaims?.last_name as string) ?? null,
-      imageUrl: (sessionClaims?.image_url as string) ?? null,
+      email,
+      first_name: firstName,
+      last_name: lastName,
+      image_url: imageUrl,
+      favorite_activities: DEFAULT_FAVORITE_ACTIVITIES,
     });
+
+    if (insertError) throw new Error(insertError.message);
   }
 
-  return await db.query.users.findFirst({
-    where: eq(users.id, userId),
-  });
+  const { data: user, error } = await supabase
+    .from("users")
+    .select(userSelect)
+    .eq("id", userId)
+    .single();
+
+  if (error) throw new Error(error.message);
+  return normalizeUser(user);
 }
 
 export async function updateUserSettings(settings: {
@@ -47,42 +99,60 @@ export async function updateUserSettings(settings: {
   tempUnit?: "fahrenheit" | "celsius";
   timeFormat?: "12h" | "24h";
 }) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+  const userId = await requireUserId();
 
-  await db
-    .update(users)
-    .set({
-      ...settings,
-      updatedAt: new Date(),
-    })
-    .where(eq(users.id, userId));
+  const supabase = await createClient();
+  const updateData: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  };
+  if (settings.unitSystem) updateData.unit_system = settings.unitSystem;
+  if (settings.tempUnit) updateData.temp_unit = settings.tempUnit;
+  if (settings.timeFormat) updateData.time_format = settings.timeFormat;
+
+  const { error } = await supabase
+    .from("users")
+    .update(updateData)
+    .eq("id", userId);
+  if (error) throw new Error(error.message);
 
   revalidatePath("/settings");
   revalidatePath("/");
 }
 
 export async function getFavoriteActivities(): Promise<string[]> {
-  const { userId } = await auth();
+  const userId = await requireUserId().catch(() => null);
   if (!userId) return DEFAULT_FAVORITE_ACTIVITIES;
 
-  const user = await db.query.users.findFirst({
-    where: eq(users.id, userId),
-  });
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("users")
+    .select("favorite_activities")
+    .eq("id", userId)
+    .maybeSingle();
 
-  return user?.favoriteActivities ?? DEFAULT_FAVORITE_ACTIVITIES;
+  if (error) throw new Error(error.message);
+  return (
+    (data?.favorite_activities as string[] | null) ??
+    DEFAULT_FAVORITE_ACTIVITIES
+  );
 }
 
 export async function toggleFavoriteActivity(activityId: string) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+  const userId = await requireUserId();
 
-  const user = await db.query.users.findFirst({
-    where: eq(users.id, userId),
-  });
+  const supabase = await createClient();
+  const { data: user, error: userError } = await supabase
+    .from("users")
+    .select("favorite_activities")
+    .eq("id", userId)
+    .maybeSingle();
 
-  const currentFavorites = user?.favoriteActivities ?? DEFAULT_FAVORITE_ACTIVITIES;
-  
+  if (userError) throw new Error(userError.message);
+
+  const currentFavorites =
+    (user?.favorite_activities as string[] | null) ??
+    DEFAULT_FAVORITE_ACTIVITIES;
+
   let newFavorites: string[];
   if (currentFavorites.includes(activityId)) {
     // Remove from favorites
@@ -92,17 +162,18 @@ export async function toggleFavoriteActivity(activityId: string) {
     newFavorites = [...currentFavorites, activityId];
   }
 
-  await db
-    .update(users)
-    .set({
-      favoriteActivities: newFavorites,
-      updatedAt: new Date(),
+  const { error } = await supabase
+    .from("users")
+    .update({
+      favorite_activities: newFavorites,
+      updated_at: new Date().toISOString(),
     })
-    .where(eq(users.id, userId));
+    .eq("id", userId);
+
+  if (error) throw new Error(error.message);
 
   revalidatePath("/");
   revalidatePath("/baby");
-  
+
   return newFavorites;
 }
-
