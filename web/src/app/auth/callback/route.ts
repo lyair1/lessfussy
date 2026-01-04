@@ -11,9 +11,17 @@ type CookieToSet = {
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
+  const redirectTo = searchParams.get("redirect");
+
+  const safeRedirectTo =
+    redirectTo && redirectTo.startsWith("/") && !redirectTo.startsWith("//")
+      ? redirectTo
+      : "/dashboard";
 
   if (!code) {
-    return NextResponse.redirect(`${origin}/sign-in`);
+    return NextResponse.redirect(
+      `${origin}/sign-in?error=Missing%20auth%20code`
+    );
   }
 
   const cookieStore = await cookies();
@@ -41,8 +49,10 @@ export async function GET(request: Request) {
 
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
-    return NextResponse.redirect(`${origin}/sign-in`);
+    return NextResponse.redirect(
+      `${origin}/sign-in?error=${encodeURIComponent(error.message)}`
+    );
   }
 
-  return NextResponse.redirect(`${origin}/dashboard`);
+  return NextResponse.redirect(`${origin}${safeRedirectTo}`);
 }

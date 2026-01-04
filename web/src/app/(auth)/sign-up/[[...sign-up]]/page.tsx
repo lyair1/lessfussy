@@ -1,6 +1,16 @@
+import Link from "next/link";
 import { signUpWithPassword } from "@/lib/actions/auth";
 
-export default function SignUpPage() {
+export default function SignUpPage({
+  searchParams,
+}: {
+  searchParams: Record<string, string | string[] | undefined>;
+}) {
+  const redirectTo =
+    typeof searchParams.redirect === "string" ? searchParams.redirect : "";
+  const error =
+    typeof searchParams.error === "string" ? searchParams.error : "";
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md">
@@ -78,7 +88,14 @@ export default function SignUpPage() {
           </p>
         </div>
         <div className="rounded-lg border border-border bg-card p-6">
+          {error ? (
+            <div className="mb-4 rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error}
+            </div>
+          ) : null}
+
           <form action={signUpWithPassword} className="space-y-4">
+            <input type="hidden" name="redirectTo" value={redirectTo} />
             <div className="space-y-2">
               <label
                 className="text-sm font-medium text-foreground"
@@ -117,6 +134,20 @@ export default function SignUpPage() {
             </button>
           </form>
         </div>
+
+        <p className="mt-4 text-center text-sm text-muted-foreground">
+          Already have an account?{" "}
+          <Link
+            href={
+              redirectTo
+                ? `/sign-in?redirect=${encodeURIComponent(redirectTo)}`
+                : "/sign-in"
+            }
+            className="text-primary underline underline-offset-4"
+          >
+            Sign in
+          </Link>
+        </p>
       </div>
     </div>
   );
