@@ -77,6 +77,8 @@ export default function SleepPage() {
 
   const isEditMode = !!entryId && entryId !== "new";
 
+  const [isManualMode, setIsManualMode] = useState(isEditMode);
+
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [startTime, setStartTime] = useState<Date | null>(
     entryId === "new" ? new Date() : null
@@ -256,13 +258,29 @@ export default function SleepPage() {
   };
 
   const handleSave = async () => {
-    if (!babyId || !activeSleepId) return;
+    if (!babyId) return;
 
     setSaving(true);
     try {
+      if (isManualMode && !startTime) {
+        toast.error("Start time is required");
+        return;
+      }
+
+      if (isManualMode && !endTime) {
+        toast.error("End time is required");
+        return;
+      }
+
+      if (isManualMode && startTime && endTime && endTime <= startTime) {
+        toast.error("End time must be after start time");
+        return;
+      }
+
       const finalEndTime = endTime || new Date();
 
       if (isEditMode) {
+        if (!activeSleepId) return;
         // Update existing entry
         await updateSleepLog(activeSleepId, babyId, {
           startTime: startTime || new Date(),
@@ -277,14 +295,41 @@ export default function SleepPage() {
         toast.success("Sleep updated!");
         router.push(`/baby/${babyId}`);
       } else {
-        await updateSleepLog(activeSleepId, babyId, {
-          endTime: finalEndTime,
-          endMood: endMood || undefined,
-          wokeUpChild,
-          notes: notes || undefined,
-        });
-        toast.success("Sleep logged!");
-        router.push(`/baby/${babyId}`);
+        if (isManualMode) {
+          await checkConflictsAndProceed(
+            "sleep",
+            async () => {
+              await createSleepLog(
+                {
+                  babyId,
+                  startTime: startTime || new Date(),
+                  endTime: finalEndTime,
+                  startMood: startMood || undefined,
+                  endMood: endMood || undefined,
+                  fallAsleepTime: fallAsleepTime || undefined,
+                  sleepMethod: sleepMethod || undefined,
+                  wokeUpChild,
+                  notes: notes || undefined,
+                },
+                { allowOverride: true }
+              );
+            },
+            startTime || new Date(),
+            finalEndTime
+          );
+          toast.success("Sleep logged!");
+          router.push(`/baby/${babyId}`);
+        } else {
+          if (!activeSleepId) return;
+          await updateSleepLog(activeSleepId, babyId, {
+            endTime: finalEndTime,
+            endMood: endMood || undefined,
+            wokeUpChild,
+            notes: notes || undefined,
+          });
+          toast.success("Sleep logged!");
+          router.push(`/baby/${babyId}`);
+        }
       }
     } catch (error) {
       toast.error("Failed to save sleep");
@@ -297,6 +342,11 @@ export default function SleepPage() {
   const handleStartTimeChange = async (newStartTime: Date) => {
     if (!babyId) {
       toast.error("Baby not found");
+      return;
+    }
+
+    if (isManualMode) {
+      setStartTime(newStartTime);
       return;
     }
 
@@ -488,15 +538,47 @@ export default function SleepPage() {
       <TrackingHeader title={isEditMode ? "Edit sleep" : "Add sleep"} />
 
       <div className="space-y-6">
+        {!isEditMode && (
+          <div className="flex justify-center gap-2">
+            <Button
+              type="button"
+              variant={isManualMode ? "outline" : "default"}
+              className="rounded-full"
+              disabled={isTimerRunning}
+              onClick={() => {
+                setIsManualMode(false);
+                setEndTime(null);
+              }}
+            >
+              Timer
+            </Button>
+            <Button
+              type="button"
+              variant={isManualMode ? "default" : "outline"}
+              className="rounded-full"
+              disabled={isTimerRunning || !!activeSleepId}
+              onClick={() => {
+                setIsManualMode(true);
+                const now = new Date();
+                setStartTime(now);
+                setEndTime(now);
+                setElapsedSeconds(0);
+              }}
+            >
+              Manual
+            </Button>
+          </div>
+        )}
+
         <DateTimeRow
           label="Start Time"
           value={startTime || new Date()}
           onChange={handleStartTimeChange}
         />
 
-        {!isTimerRunning && (
+        {isManualMode && (
           <DateTimeRow
-            label="End Time (optional)"
+            label="End Time"
             value={endTime || startTime || new Date()}
             onChange={setEndTime}
           />
@@ -519,36 +601,38 @@ export default function SleepPage() {
         </div>
 
         {/* Main Action Button */}
-        <div className="flex justify-center">
-          {!isTimerRunning && !activeSleepId ? (
-            <button
-              onClick={handleStart}
-              disabled={!startTime}
-              className="w-40 h-40 rounded-full flex flex-col items-center justify-center gap-2 bg-cyan text-cyan-foreground hover:bg-cyan/90 transition-all border-4 border-dashed border-cyan/50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Play className="h-12 w-12" />
-              <span className="font-bold text-lg">START</span>
-            </button>
-          ) : isTimerRunning ? (
-            <button
-              onClick={handleStop}
-              disabled={saving}
-              className="w-40 h-40 rounded-full flex flex-col items-center justify-center gap-2 bg-cyan text-cyan-foreground hover:bg-cyan/90 transition-all border-4 border-dashed border-cyan/50 timer-pulse"
-            >
-              <Square className="h-10 w-10" />
-              <span className="font-bold text-lg">STOP</span>
-            </button>
-          ) : (
-            <button
-              onClick={handleStart}
-              disabled={!startTime}
-              className="w-40 h-40 rounded-full flex flex-col items-center justify-center gap-2 bg-cyan text-cyan-foreground hover:bg-cyan/90 transition-all border-4 border-dashed border-cyan/50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Play className="h-12 w-12" />
-              <span className="font-bold text-lg">CONTINUE</span>
-            </button>
-          )}
-        </div>
+        {!isManualMode && (
+          <div className="flex justify-center">
+            {!isTimerRunning && !activeSleepId ? (
+              <button
+                onClick={handleStart}
+                disabled={!startTime}
+                className="w-40 h-40 rounded-full flex flex-col items-center justify-center gap-2 bg-cyan text-cyan-foreground hover:bg-cyan/90 transition-all border-4 border-dashed border-cyan/50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Play className="h-12 w-12" />
+                <span className="font-bold text-lg">START</span>
+              </button>
+            ) : isTimerRunning ? (
+              <button
+                onClick={handleStop}
+                disabled={saving}
+                className="w-40 h-40 rounded-full flex flex-col items-center justify-center gap-2 bg-cyan text-cyan-foreground hover:bg-cyan/90 transition-all border-4 border-dashed border-cyan/50 timer-pulse"
+              >
+                <Square className="h-10 w-10" />
+                <span className="font-bold text-lg">STOP</span>
+              </button>
+            ) : (
+              <button
+                onClick={handleStart}
+                disabled={!startTime}
+                className="w-40 h-40 rounded-full flex flex-col items-center justify-center gap-2 bg-cyan text-cyan-foreground hover:bg-cyan/90 transition-all border-4 border-dashed border-cyan/50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Play className="h-12 w-12" />
+                <span className="font-bold text-lg">CONTINUE</span>
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Add Details Button */}
         <div className="text-center">
@@ -563,7 +647,9 @@ export default function SleepPage() {
         </div>
 
         {/* Action Buttons */}
-        {(isEditMode || (activeSleepId && endTime && !isTimerRunning)) && (
+        {(isEditMode ||
+          (activeSleepId && endTime && !isTimerRunning) ||
+          (isManualMode && !isEditMode)) && (
           <div className="flex gap-3">
             <Button
               variant="outline"
