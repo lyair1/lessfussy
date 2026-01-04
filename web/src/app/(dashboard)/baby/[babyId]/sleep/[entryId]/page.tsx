@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -108,6 +108,9 @@ export default function SleepPage() {
     (() => Promise<void>) | null
   >(null);
 
+  const loadEntryKeyRef = useRef<string | null>(null);
+  const checkActiveSleepKeyRef = useRef<string | null>(null);
+
   // Load entry data if in edit mode
   useEffect(() => {
     async function loadEntry() {
@@ -151,6 +154,9 @@ export default function SleepPage() {
       }
     }
 
+    const key = `${babyId}:${entryId}`;
+    if (loadEntryKeyRef.current === key) return;
+    loadEntryKeyRef.current = key;
     loadEntry();
   }, [isEditMode, entryId, babyId]);
 
@@ -184,6 +190,10 @@ export default function SleepPage() {
         setLoadingSession(false);
       }
     }
+
+    const key = `${babyId}:${isEditMode}`;
+    if (checkActiveSleepKeyRef.current === key) return;
+    checkActiveSleepKeyRef.current = key;
     checkActiveSleep();
   }, [babyId, isEditMode]);
 

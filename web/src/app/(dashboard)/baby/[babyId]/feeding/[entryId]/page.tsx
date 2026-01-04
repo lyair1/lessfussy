@@ -94,6 +94,15 @@ export default function FeedingPage() {
   const [bottleStartTime, setBottleStartTime] = useState(new Date());
   const [notes, setNotes] = useState("");
 
+  const didLoadUserSettingsRef = useRef(false);
+  const loadEntryKeyRef = useRef<string | null>(null);
+  const loadSessionKeyRef = useRef<string | null>(null);
+
+  const isTimerRunningRef = useRef(isTimerRunning);
+  const activeSideRef = useRef(activeSide);
+  const leftDurationRef = useRef(leftDuration);
+  const rightDurationRef = useRef(rightDuration);
+
   useEffect(() => {
     async function loadUserSettings() {
       try {
@@ -107,6 +116,8 @@ export default function FeedingPage() {
       }
     }
 
+    if (didLoadUserSettingsRef.current) return;
+    didLoadUserSettingsRef.current = true;
     loadUserSettings();
   }, []);
 
@@ -189,6 +200,9 @@ export default function FeedingPage() {
       }
     }
 
+    const key = `${babyId}:${entryId}`;
+    if (loadEntryKeyRef.current === key) return;
+    loadEntryKeyRef.current = key;
     loadEntry();
   }, [isEditMode, entryId, babyId]);
 
@@ -274,8 +288,28 @@ export default function FeedingPage() {
         setLoadingSession(false);
       }
     }
+
+    const key = `${babyId}:${isEditMode}`;
+    if (loadSessionKeyRef.current === key) return;
+    loadSessionKeyRef.current = key;
     loadSession();
   }, [babyId, isEditMode]);
+
+  useEffect(() => {
+    isTimerRunningRef.current = isTimerRunning;
+  }, [isTimerRunning]);
+
+  useEffect(() => {
+    activeSideRef.current = activeSide;
+  }, [activeSide]);
+
+  useEffect(() => {
+    leftDurationRef.current = leftDuration;
+  }, [leftDuration]);
+
+  useEffect(() => {
+    rightDurationRef.current = rightDuration;
+  }, [rightDuration]);
 
   // Persist nursing session to DB (only called on state changes)
   const persistSession = useCallback(
@@ -315,24 +349,24 @@ export default function FeedingPage() {
     if (!nursingStartTime) return;
 
     const interval = setInterval(() => {
-      if (isTimerRunning && activeSide === "left") {
+      const running = isTimerRunningRef.current;
+      const side = activeSideRef.current;
+
+      if (running && side === "left") {
         setLeftDuration((d) => d + 1);
-      } else if (isTimerRunning && activeSide === "right") {
+      } else if (running && side === "right") {
         setRightDuration((d) => d + 1);
-      } else if (!isTimerRunning && (leftDuration > 0 || rightDuration > 0)) {
+      } else if (
+        !running &&
+        (leftDurationRef.current > 0 || rightDurationRef.current > 0)
+      ) {
         // Timer is paused but session exists - increment paused time
         setPausedDuration((d) => d + 1);
       }
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [
-    isTimerRunning,
-    activeSide,
-    nursingStartTime,
-    leftDuration,
-    rightDuration,
-  ]);
+  }, [nursingStartTime]);
 
   // Persist when state changes (start, pause, switch sides)
   const prevStateRef = useRef<{ running: boolean; side: NursingSide | null }>({

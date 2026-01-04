@@ -74,6 +74,9 @@ export default function PumpingPage() {
   // Manual duration input (in minutes)
   const [manualDuration, setManualDuration] = useState<number | null>(null);
 
+  const loadEntryKeyRef = useRef<string | null>(null);
+  const loadSessionKeyRef = useRef<string | null>(null);
+
   // Load entry data if in edit mode
   useEffect(() => {
     async function loadEntry() {
@@ -121,6 +124,9 @@ export default function PumpingPage() {
       }
     }
 
+    const key = `${babyId}:${entryId}`;
+    if (loadEntryKeyRef.current === key) return;
+    loadEntryKeyRef.current = key;
     loadEntry();
   }, [isEditMode, entryId, babyId]);
 
@@ -173,6 +179,10 @@ export default function PumpingPage() {
         setLoadingSession(false);
       }
     }
+
+    const key = `${babyId}:${isEditMode}`;
+    if (loadSessionKeyRef.current === key) return;
+    loadSessionKeyRef.current = key;
     loadSession();
   }, [babyId, isEditMode]);
 

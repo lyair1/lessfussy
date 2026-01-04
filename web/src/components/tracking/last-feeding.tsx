@@ -20,6 +20,8 @@ export function LastFeeding({ feeding, babyId, babyName }: LastFeedingProps) {
     "imperial"
   );
 
+  const didLoadRef = React.useRef(false);
+
   React.useEffect(() => {
     async function load() {
       try {
@@ -29,6 +31,9 @@ export function LastFeeding({ feeding, babyId, babyName }: LastFeedingProps) {
         // ignore
       }
     }
+
+    if (didLoadRef.current) return;
+    didLoadRef.current = true;
     load();
   }, []);
 
