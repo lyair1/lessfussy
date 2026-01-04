@@ -1,8 +1,8 @@
-import { clsx, type ClassValue } from "clsx"
-import { twMerge } from "tailwind-merge"
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
+  return twMerge(clsx(inputs));
 }
 
 /**
@@ -51,7 +51,10 @@ export function parseDateTimeLocal(value: string): Date {
  * Parse date and time input values to a Date object.
  * Both values are in local timezone format.
  */
-export function parseDateAndTimeLocal(dateValue: string, timeValue: string): Date {
+export function parseDateAndTimeLocal(
+  dateValue: string,
+  timeValue: string
+): Date {
   return new Date(`${dateValue}T${timeValue}`);
 }
 
@@ -130,11 +133,15 @@ export function formatDuration(seconds: number): string {
   } else if (seconds < 3600) {
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
-    return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+    return remainingSeconds > 0
+      ? `${minutes}m ${remainingSeconds}s`
+      : `${minutes}m`;
   } else {
     const hours = Math.floor(seconds / 3600);
     const remainingMinutes = Math.floor((seconds % 3600) / 60);
-    return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+    return remainingMinutes > 0
+      ? `${hours}h ${remainingMinutes}m`
+      : `${hours}h`;
   }
 }
 
@@ -160,4 +167,48 @@ export function getRelativeTime(date: Date): string {
     // For older entries, show the date
     return date.toLocaleDateString();
   }
+}
+
+export type VolumeUnit = "oz" | "ml";
+
+export function ozToMl(oz: number): number {
+  return oz * 29.5735295625;
+}
+
+export function mlToOz(ml: number): number {
+  return ml / 29.5735295625;
+}
+
+export function convertVolume(
+  value: number,
+  from: VolumeUnit,
+  to: VolumeUnit
+): number {
+  if (from === to) return value;
+  return from === "oz" ? ozToMl(value) : mlToOz(value);
+}
+
+export function roundToStep(value: number, step: number): number {
+  if (step <= 0) return value;
+  return Math.round(value / step) * step;
+}
+
+export function formatVolumeForUnitSystem(
+  amount: number | null | undefined,
+  amountUnit: VolumeUnit | null | undefined,
+  unitSystem: "imperial" | "metric" | null | undefined
+): { amount: number; unit: VolumeUnit } | null {
+  if (amount === null || amount === undefined) return null;
+
+  const fromUnit: VolumeUnit = amountUnit === "ml" ? "ml" : "oz";
+  const toUnit: VolumeUnit = unitSystem === "metric" ? "ml" : "oz";
+  const converted = convertVolume(amount, fromUnit, toUnit);
+
+  const step = toUnit === "oz" ? 0.25 : 5;
+  const rounded = roundToStep(converted, step);
+
+  return {
+    amount: toUnit === "oz" ? Number(rounded.toFixed(2)) : Math.round(rounded),
+    unit: toUnit,
+  };
 }

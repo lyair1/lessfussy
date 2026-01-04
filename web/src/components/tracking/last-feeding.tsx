@@ -1,8 +1,11 @@
 "use client";
 
+import * as React from "react";
 import { formatDistanceToNow, isToday, isYesterday } from "date-fns";
 import { useRouter } from "next/navigation";
 import { Feeding } from "@/lib/db/schema";
+import { getCurrentUser } from "@/lib/actions/users";
+import { formatVolumeForUnitSystem } from "@/lib/utils";
 
 interface LastFeedingProps {
   feeding: Feeding | null;
@@ -12,6 +15,22 @@ interface LastFeedingProps {
 
 export function LastFeeding({ feeding, babyId, babyName }: LastFeedingProps) {
   const router = useRouter();
+
+  const [unitSystem, setUnitSystem] = React.useState<"imperial" | "metric">(
+    "imperial"
+  );
+
+  React.useEffect(() => {
+    async function load() {
+      try {
+        const user = await getCurrentUser();
+        if (user?.unitSystem) setUnitSystem(user.unitSystem);
+      } catch {
+        // ignore
+      }
+    }
+    load();
+  }, []);
 
   if (!feeding) {
     return null;
@@ -27,10 +46,13 @@ export function LastFeeding({ feeding, babyId, babyName }: LastFeedingProps) {
 
   const formatFeedingDescription = () => {
     if (feeding.type === "bottle") {
-      const amount = feeding.amount;
-      const unit = feeding.amountUnit || "oz";
-      if (amount) {
-        return `${amount}${unit} bottle`;
+      const formatted = formatVolumeForUnitSystem(
+        feeding.amount,
+        (feeding.amountUnit as any) || "oz",
+        unitSystem
+      );
+      if (formatted) {
+        return `${formatted.amount}${formatted.unit} bottle`;
       }
       return "bottle";
     } else if (feeding.type === "nursing") {

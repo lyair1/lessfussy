@@ -18,8 +18,13 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
-import { cn, formatDuration, getRelativeTime } from "@/lib/utils";
-import { toggleFavoriteActivity } from "@/lib/actions/users";
+import {
+  cn,
+  formatDuration,
+  formatVolumeForUnitSystem,
+  getRelativeTime,
+} from "@/lib/utils";
+import { getCurrentUser, toggleFavoriteActivity } from "@/lib/actions/users";
 import { toast } from "sonner";
 import type {
   Feeding,
@@ -134,6 +139,21 @@ export function TrackingGrid({
   const [favorites, setFavorites] = useState<string[]>(initialFavorites);
   const [showMore, setShowMore] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const [unitSystem, setUnitSystem] = useState<"imperial" | "metric">(
+    "imperial"
+  );
+
+  React.useEffect(() => {
+    async function load() {
+      try {
+        const user = await getCurrentUser();
+        if (user?.unitSystem) setUnitSystem(user.unitSystem);
+      } catch {
+        // ignore
+      }
+    }
+    load();
+  }, []);
 
   const favoriteItems = trackingTypes.filter((type) =>
     favorites.includes(type.id)
@@ -252,7 +272,14 @@ export function TrackingGrid({
           const amount = (lastEntry as any).amount;
           const unit = (lastEntry as any).amountUnit || "oz";
           if (amount && amount > 0) {
-            durationText = `${amount}${unit}`;
+            const formatted = formatVolumeForUnitSystem(
+              amount,
+              unit,
+              unitSystem
+            );
+            durationText = formatted
+              ? `${formatted.amount}${formatted.unit}`
+              : `${amount}${unit}`;
           }
         } else if ((lastEntry as any).startTime && (lastEntry as any).endTime) {
           // For other completed feedings, calculate duration from start/end times

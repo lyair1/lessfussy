@@ -38,7 +38,14 @@ import {
   createSleepLog,
   updateSleepLog,
 } from "@/lib/actions/tracking";
-import { cn, Conflict } from "@/lib/utils";
+import {
+  cn,
+  Conflict,
+  convertVolume,
+  roundToStep,
+  type VolumeUnit,
+} from "@/lib/utils";
+import { getCurrentUser } from "@/lib/actions/users";
 
 type FeedingTab = "nursing" | "bottle";
 type NursingSide = "left" | "right";
@@ -50,11 +57,19 @@ export default function FeedingPage() {
   const babyId = params.babyId as string;
   const entryId = params.entryId as string;
 
-  const isEditMode = !!entryId && entryId !== 'new';
+  const isEditMode = !!entryId && entryId !== "new";
 
   // Tab state
   const [activeTab, setActiveTab] = useState<FeedingTab>("nursing");
-  const [originalFeedingType, setOriginalFeedingType] = useState<FeedingTab | null>(null);
+  const [originalFeedingType, setOriginalFeedingType] =
+    useState<FeedingTab | null>(null);
+
+  const [unitSystem, setUnitSystem] = useState<"imperial" | "metric">(
+    "imperial"
+  );
+
+  // Nursing mode
+  const [isManualMode, setIsManualMode] = useState(false);
 
   // Nursing state
   const [lastSide, setLastSide] = useState<NursingSide | null>(null);
@@ -66,13 +81,34 @@ export default function FeedingPage() {
   const [nursingStartTime, setNursingStartTime] = useState<Date | null>(null);
   const [nursingEndTime, setNursingEndTime] = useState<Date | null>(null);
 
+  const [manualStartTime, setManualStartTime] = useState<Date>(new Date());
+  const [manualEndTime, setManualEndTime] = useState<Date>(new Date());
+  const [manualLeftMinutes, setManualLeftMinutes] = useState<number>(0);
+  const [manualRightMinutes, setManualRightMinutes] = useState<number>(0);
+
   // Bottle state
   const [bottleContent, setBottleContent] =
     useState<BottleContent>("breast_milk");
-  const [amountUnit, setAmountUnit] = useState<"oz" | "ml">("oz");
+  const [amountUnit, setAmountUnit] = useState<VolumeUnit>("oz");
   const [amount, setAmount] = useState(4);
   const [bottleStartTime, setBottleStartTime] = useState(new Date());
   const [notes, setNotes] = useState("");
+
+  useEffect(() => {
+    async function loadUserSettings() {
+      try {
+        const user = await getCurrentUser();
+        if (user?.unitSystem) {
+          setUnitSystem(user.unitSystem);
+          setAmountUnit(user.unitSystem === "metric" ? "ml" : "oz");
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    loadUserSettings();
+  }, []);
 
   // Loading state
   const [saving, setSaving] = useState(false);
@@ -110,40 +146,44 @@ export default function FeedingPage() {
         // For now, we'll need to get the entry from the timeline
         // In a real implementation, you'd have a getEntryById function
         const { getTimelineEntries } = await import("@/lib/actions/tracking");
-        const entries = await getTimelineEntries(babyId, '7d');
-        const entry = entries.find(e => e.id === entryId);
+        const entries = await getTimelineEntries(babyId, "7d");
+        const entry = entries.find((e) => e.id === entryId);
 
-        if (entry && entry.entryType === 'feeding') {
+        if (entry && entry.entryType === "feeding") {
           // Check if this is an active nursing session
-          if (entry.type === 'nursing' && !entry.endTime && entry.currentStatus) {
+          if (
+            entry.type === "nursing" &&
+            !entry.endTime &&
+            entry.currentStatus
+          ) {
             // This is an active nursing session, redirect to the "new" view
             router.replace(`/baby/${babyId}/feeding/new`);
             return;
           }
-          
-          if (entry.type === 'bottle') {
-            setActiveTab('bottle');
-            setOriginalFeedingType('bottle');
+
+          if (entry.type === "bottle") {
+            setActiveTab("bottle");
+            setOriginalFeedingType("bottle");
             setBottleStartTime(new Date(entry.startTime || entry.time));
-            setBottleContent(entry.bottleContent || 'breast_milk');
+            setBottleContent(entry.bottleContent || "breast_milk");
             setAmount(entry.amount || 4);
-            setAmountUnit((entry.amountUnit || 'oz') as "oz" | "ml");
-            setNotes(entry.notes || '');
+            setAmountUnit((entry.amountUnit || "oz") as VolumeUnit);
+            setNotes(entry.notes || "");
           } else {
             // Nursing entry (completed)
-            setActiveTab('nursing');
-            setOriginalFeedingType('nursing');
+            setActiveTab("nursing");
+            setOriginalFeedingType("nursing");
             setNursingStartTime(new Date(entry.startTime || entry.time));
             setNursingEndTime(entry.endTime ? new Date(entry.endTime) : null);
             setLeftDuration(entry.leftDuration || 0);
             setRightDuration(entry.rightDuration || 0);
             setPausedDuration(entry.pausedDuration || 0);
-            setNotes(entry.notes || '');
+            setNotes(entry.notes || "");
           }
         }
       } catch (error) {
-        console.error('Failed to load entry:', error);
-        toast.error('Failed to load entry');
+        console.error("Failed to load entry:", error);
+        toast.error("Failed to load entry");
       } finally {
         setLoadingEntry(false);
       }
@@ -151,6 +191,13 @@ export default function FeedingPage() {
 
     loadEntry();
   }, [isEditMode, entryId, babyId]);
+
+  // If a nursing timer session is active, lock the UI to nursing
+  useEffect(() => {
+    if (!isEditMode && nursingStartTime) {
+      setActiveTab("nursing");
+    }
+  }, [isEditMode, nursingStartTime]);
 
   // Load active nursing session and last feeding info on mount
   useEffect(() => {
@@ -492,6 +539,172 @@ export default function FeedingPage() {
     setNotes("");
   };
 
+  const getManualTotalMinutes = () => {
+    return Math.max(0, manualLeftMinutes) + Math.max(0, manualRightMinutes);
+  };
+
+  const addMinutes = (date: Date, minutes: number) => {
+    return new Date(date.getTime() + minutes * 60 * 1000);
+  };
+
+  const syncManualEndFromStartAndMinutes = (
+    start: Date,
+    leftMin: number,
+    rightMin: number
+  ) => {
+    const total = Math.max(0, leftMin) + Math.max(0, rightMin);
+    setManualEndTime(addMinutes(start, total));
+  };
+
+  const syncManualMinutesFromStartEnd = (start: Date, end: Date) => {
+    const durationMinutes = Math.max(
+      0,
+      Math.round((end.getTime() - start.getTime()) / (60 * 1000))
+    );
+
+    if (durationMinutes === 0) {
+      setManualLeftMinutes(0);
+      setManualRightMinutes(0);
+      return;
+    }
+
+    const currentLeft = Math.max(0, manualLeftMinutes);
+    const currentRight = Math.max(0, manualRightMinutes);
+    const currentTotal = currentLeft + currentRight;
+
+    if (currentTotal === 0) {
+      setManualLeftMinutes(durationMinutes);
+      setManualRightMinutes(0);
+      return;
+    }
+
+    const leftRatio = currentLeft / currentTotal;
+    const newLeft = Math.round(durationMinutes * leftRatio);
+    const newRight = Math.max(0, durationMinutes - newLeft);
+
+    setManualLeftMinutes(newLeft);
+    setManualRightMinutes(newRight);
+  };
+
+  const handleManualStartTimeChange = (newStart: Date) => {
+    setManualStartTime(newStart);
+    syncManualEndFromStartAndMinutes(
+      newStart,
+      manualLeftMinutes,
+      manualRightMinutes
+    );
+  };
+
+  const handleManualEndTimeChange = (newEnd: Date) => {
+    setManualEndTime(newEnd);
+    syncManualMinutesFromStartEnd(manualStartTime, newEnd);
+  };
+
+  const handleManualMinutesChange = (
+    side: "left" | "right",
+    minutes: number
+  ) => {
+    const next = Math.max(0, minutes);
+    const nextLeft = side === "left" ? next : manualLeftMinutes;
+    const nextRight = side === "right" ? next : manualRightMinutes;
+
+    if (side === "left") setManualLeftMinutes(nextLeft);
+    else setManualRightMinutes(nextRight);
+
+    const requiredEnd = addMinutes(
+      manualStartTime,
+      Math.max(0, nextLeft) + Math.max(0, nextRight)
+    );
+    if (requiredEnd.getTime() > manualEndTime.getTime()) {
+      setManualEndTime(requiredEnd);
+    }
+  };
+
+  const enterManualModeFromTimers = () => {
+    const start = nursingStartTime || new Date();
+    const end = new Date();
+    setManualStartTime(start);
+    setManualEndTime(end);
+    setManualLeftMinutes(Math.floor(leftDuration / 60));
+    setManualRightMinutes(Math.floor(rightDuration / 60));
+    setIsManualMode(true);
+  };
+
+  const enterManualModeBlank = () => {
+    const now = new Date();
+    setManualStartTime(now);
+    setManualEndTime(now);
+    setManualLeftMinutes(0);
+    setManualRightMinutes(0);
+    setIsManualMode(true);
+  };
+
+  const handleSaveManualNursing = async () => {
+    if (!babyId) {
+      toast.error("Baby not found");
+      return;
+    }
+
+    const leftSeconds = Math.max(0, Math.floor(manualLeftMinutes * 60));
+    const rightSeconds = Math.max(0, Math.floor(manualRightMinutes * 60));
+
+    if (leftSeconds === 0 && rightSeconds === 0) {
+      toast.error("Please enter a duration");
+      return;
+    }
+
+    const startTime = manualStartTime;
+    const endTime = manualEndTime;
+
+    if (endTime <= startTime) {
+      toast.error("End time must be after start time");
+      return;
+    }
+
+    await checkConflictsAndProceed(
+      "feeding",
+      async () => {
+        setSaving(true);
+        try {
+          if (isEditMode) {
+            await updateFeeding(entryId, babyId, {
+              startTime,
+              endTime,
+              leftDuration: leftSeconds,
+              rightDuration: rightSeconds,
+              pausedDuration: 0,
+              notes: notes || undefined,
+            });
+            toast.success("Nursing session updated!");
+          } else {
+            await createFeeding(
+              {
+                babyId,
+                type: "nursing",
+                startTime,
+                endTime,
+                leftDuration: leftSeconds,
+                rightDuration: rightSeconds,
+                pausedDuration: 0,
+                notes: notes || undefined,
+              },
+              { allowOverride: true }
+            );
+            toast.success("Nursing session saved!");
+          }
+          router.push(`/baby/${babyId}`);
+        } catch (error) {
+          toast.error("Failed to save");
+          console.error(error);
+        } finally {
+          setSaving(false);
+        }
+      },
+      startTime,
+      endTime
+    );
+  };
+
   const handleNursingStartTimeChange = async (newStartTime: Date) => {
     if (!nursingStartTime) return;
 
@@ -529,10 +742,7 @@ export default function FeedingPage() {
     }
   };
 
-  const handleEditModeTimeChange = (
-    type: "start" | "end",
-    newTime: Date
-  ) => {
+  const handleEditModeTimeChange = (type: "start" | "end", newTime: Date) => {
     if (!nursingStartTime || !nursingEndTime) return;
 
     if (type === "start") {
@@ -582,7 +792,7 @@ export default function FeedingPage() {
     }
 
     const startTime = nursingStartTime || new Date();
-    const endTime = isEditMode ? (nursingEndTime || new Date()) : new Date();
+    const endTime = isEditMode ? nursingEndTime || new Date() : new Date();
 
     await checkConflictsAndProceed(
       "feeding",
@@ -768,36 +978,155 @@ export default function FeedingPage() {
           if (isEditMode && originalFeedingType && originalFeedingType !== v) {
             return;
           }
+          // During an active nursing session, keep user on nursing
+          if (!isEditMode && nursingStartTime) {
+            return;
+          }
           setActiveTab(v as FeedingTab);
         }}
         className="w-full"
       >
-        <TabsList className="grid w-full grid-cols-2 mb-6">
-          <TabsTrigger
-            value="nursing"
-            disabled={isEditMode && originalFeedingType === 'bottle'}
-            className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
-          >
-            Nursing
-          </TabsTrigger>
-          <TabsTrigger
-            value="bottle"
-            disabled={isEditMode && originalFeedingType === 'nursing'}
-            className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
-          >
-            Bottle
-          </TabsTrigger>
-        </TabsList>
+        {(() => {
+          const hasActiveNursingSession = !isEditMode && !!nursingStartTime;
+          const showNursingTab =
+            !isEditMode || originalFeedingType === "nursing";
+          const showBottleTab =
+            !hasActiveNursingSession &&
+            (!isEditMode || originalFeedingType === "bottle");
+          const cols = (showNursingTab ? 1 : 0) + (showBottleTab ? 1 : 0);
+
+          return (
+            <TabsList
+              className={cn(
+                "grid w-full mb-6",
+                cols === 1 ? "grid-cols-1" : "grid-cols-2"
+              )}
+            >
+              {showNursingTab && (
+                <TabsTrigger
+                  value="nursing"
+                  className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                >
+                  Nursing
+                </TabsTrigger>
+              )}
+              {showBottleTab && (
+                <TabsTrigger
+                  value="bottle"
+                  className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                >
+                  Bottle
+                </TabsTrigger>
+              )}
+            </TabsList>
+          );
+        })()}
 
         {/* Nursing Tab */}
         <TabsContent value="nursing" className="space-y-6">
-          {isEditMode && (
+          {!isEditMode && !nursingStartTime && !isManualMode && (
+            <div className="flex justify-center">
+              <Button variant="outline" onClick={enterManualModeBlank}>
+                Manual
+              </Button>
+            </div>
+          )}
+
+          {isManualMode && (
+            <>
+              <div className="flex justify-center">
+                <Button
+                  variant="outline"
+                  onClick={() => setIsManualMode(false)}
+                  disabled={saving}
+                >
+                  Use timers
+                </Button>
+              </div>
+
+              <DateTimeRow
+                label="Start Time"
+                value={manualStartTime}
+                onChange={handleManualStartTimeChange}
+              />
+              <DateTimeRow
+                label="End Time"
+                value={manualEndTime}
+                onChange={handleManualEndTimeChange}
+              />
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Left (minutes)</span>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={240}
+                    value={manualLeftMinutes}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      handleManualMinutesChange(
+                        "left",
+                        Number.isFinite(val) ? val : 0
+                      );
+                    }}
+                    className="w-24 text-right"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Right (minutes)</span>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={240}
+                    value={manualRightMinutes}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      handleManualMinutesChange(
+                        "right",
+                        Number.isFinite(val) ? val : 0
+                      );
+                    }}
+                    className="w-24 text-right"
+                  />
+                </div>
+              </div>
+
+              <NotesInput value={notes} onChange={setNotes} />
+
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  className="flex-1 h-14 text-lg rounded-full"
+                  onClick={() => {
+                    setIsManualMode(false);
+                    setNotes("");
+                  }}
+                  disabled={saving}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="flex-1 h-14 text-lg rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+                  onClick={handleSaveManualNursing}
+                  disabled={saving}
+                >
+                  {saving ? "Saving..." : "Save"}
+                </Button>
+              </div>
+            </>
+          )}
+
+          {!isManualMode && isEditMode && (
             <>
               {/* Start Time - shown in edit mode */}
               <DateTimeRow
                 label="Start Time"
                 value={nursingStartTime || new Date()}
-                onChange={(newTime) => handleEditModeTimeChange("start", newTime)}
+                onChange={(newTime) =>
+                  handleEditModeTimeChange("start", newTime)
+                }
               />
 
               {/* End Time for edit mode */}
@@ -810,7 +1139,7 @@ export default function FeedingPage() {
           )}
 
           {/* Start Time - shown once nursing has started */}
-          {nursingStartTime && !isEditMode && (
+          {nursingStartTime && !isEditMode && !isManualMode && (
             <DateTimeRow
               label="Start Time"
               value={nursingStartTime}
@@ -818,92 +1147,103 @@ export default function FeedingPage() {
             />
           )}
 
-          {/* Timer Display */}
-          {(leftDuration > 0 || rightDuration > 0 || isTimerRunning) && (
-            <div className="text-center">
-              <div className="text-4xl font-bold font-mono">
-                {formatDuration(leftDuration + rightDuration)}
+          {/* Timer Display - only when paused (not running) */}
+          {(leftDuration > 0 || rightDuration > 0) &&
+            !isTimerRunning &&
+            !isEditMode &&
+            !isManualMode && (
+              <div className="text-center">
+                <div className="text-4xl font-bold font-mono">
+                  {formatDuration(leftDuration + rightDuration)}
+                </div>
+                <p className="text-muted-foreground text-sm mt-1">
+                  Total duration
+                </p>
               </div>
-              <p className="text-muted-foreground text-sm mt-1">
-                Total duration
-              </p>
-            </div>
-          )}
+            )}
 
           {/* Side Buttons */}
-          <div className="flex gap-4 justify-center">
-            {(["left", "right"] as const).map((side) => (
-              <div key={side} className="relative">
-                {lastSide === side && !activeSide && (
-                  <span className="absolute -top-2 -left-2 bg-card text-xs px-2 py-1 rounded-full border border-border z-10">
-                    Last Side
-                  </span>
-                )}
-                <button
-                  onClick={() => handleSidePress(side)}
-                  className={cn(
-                    "w-32 h-32 rounded-full flex flex-col items-center justify-center gap-2 transition-all",
-                    "border-2 border-dashed",
-                    activeSide === side && isTimerRunning
-                      ? "bg-coral text-white border-coral timer-pulse"
-                      : activeSide === side
-                      ? "bg-coral/80 text-white border-coral"
-                      : "bg-coral/20 text-coral border-coral/50 hover:bg-coral/30"
-                  )}
-                >
-                  {activeSide === side && isTimerRunning ? (
-                    <Pause className="h-8 w-8" />
-                  ) : (
-                    <Play className="h-8 w-8" />
-                  )}
-                  <span className="font-bold uppercase">{side}</span>
-                  {(side === "left" ? leftDuration : rightDuration) > 0 && (
-                    <span className="text-sm">
-                      {formatDuration(
-                        side === "left" ? leftDuration : rightDuration
-                      )}
+          {!isManualMode && (
+            <div className="flex gap-4 justify-center">
+              {(["left", "right"] as const).map((side) => (
+                <div key={side} className="relative">
+                  {lastSide === side && !activeSide && (
+                    <span className="absolute -top-2 -left-2 bg-card text-xs px-2 py-1 rounded-full border border-border z-10">
+                      Last Side
                     </span>
                   )}
-                </button>
-              </div>
-            ))}
-          </div>
-
-          {/* Duration Distribution Slider */}
-          {(leftDuration > 0 || rightDuration > 0) && (
-            <div className="space-y-3 px-4">
-              <div className="flex justify-between text-sm">
-                <span className="text-coral font-medium">
-                  Left: {formatDuration(leftDuration)}
-                </span>
-                <span className="text-coral font-medium">
-                  Right: {formatDuration(rightDuration)}
-                </span>
-              </div>
-              <Slider
-                value={[leftDuration]}
-                onValueChange={([newLeft]) => {
-                  const total = leftDuration + rightDuration;
-                  const clampedLeft = Math.max(0, Math.min(total, newLeft));
-                  setLeftDuration(clampedLeft);
-                  setRightDuration(total - clampedLeft);
-                }}
-                onValueCommit={async () => {
-                  // Persist when user releases the slider
-                  await persistSession();
-                }}
-                min={0}
-                max={leftDuration + rightDuration}
-                step={1}
-                className="w-full"
-              />
-              <p className="text-center text-xs text-muted-foreground">
-                Drag to adjust time distribution
-              </p>
+                  <button
+                    onClick={() => handleSidePress(side)}
+                    className={cn(
+                      "w-32 h-32 rounded-full flex flex-col items-center justify-center gap-2 transition-all",
+                      "border-2 border-dashed",
+                      activeSide === side && isTimerRunning
+                        ? "bg-coral text-white border-coral timer-pulse"
+                        : activeSide === side
+                        ? "bg-coral/80 text-white border-coral"
+                        : "bg-coral/20 text-coral border-coral/50 hover:bg-coral/30"
+                    )}
+                  >
+                    {activeSide === side && isTimerRunning ? (
+                      <Pause className="h-8 w-8" />
+                    ) : (
+                      <Play className="h-8 w-8" />
+                    )}
+                    <span className="font-bold uppercase">{side}</span>
+                    {(side === "left" ? leftDuration : rightDuration) > 0 && (
+                      <span className="text-sm">
+                        {formatDuration(
+                          side === "left" ? leftDuration : rightDuration
+                        )}
+                      </span>
+                    )}
+                  </button>
+                </div>
+              ))}
             </div>
           )}
 
-          <NotesInput value={notes} onChange={setNotes} />
+          {/* Duration Distribution Slider */}
+          {(leftDuration > 0 || rightDuration > 0) &&
+            !isTimerRunning &&
+            !isEditMode &&
+            !isManualMode && (
+              <div className="space-y-3 px-4">
+                <div className="flex justify-between text-sm">
+                  <span className="text-coral font-medium">
+                    Left: {formatDuration(leftDuration)}
+                  </span>
+                  <span className="text-coral font-medium">
+                    Right: {formatDuration(rightDuration)}
+                  </span>
+                </div>
+                <Slider
+                  value={[leftDuration]}
+                  onValueChange={([newLeft]) => {
+                    const total = leftDuration + rightDuration;
+                    const clampedLeft = Math.max(0, Math.min(total, newLeft));
+                    setLeftDuration(clampedLeft);
+                    setRightDuration(total - clampedLeft);
+                  }}
+                  onValueCommit={async () => {
+                    // Persist when user releases the slider
+                    await persistSession();
+                  }}
+                  min={0}
+                  max={leftDuration + rightDuration}
+                  step={1}
+                  className="w-full"
+                />
+                <p className="text-center text-xs text-muted-foreground">
+                  Drag to adjust time distribution
+                </p>
+              </div>
+            )}
+
+          {!isTimerRunning &&
+            !isEditMode &&
+            nursingStartTime &&
+            !isManualMode && <NotesInput value={notes} onChange={setNotes} />}
 
           {/* Action Buttons */}
           {isEditMode ? (
@@ -933,30 +1273,40 @@ export default function FeedingPage() {
               </Button>
             </div>
           ) : (
-            <div className="flex gap-3">
-              {(leftDuration > 0 || rightDuration > 0) && (
-                <Button
-                  variant="outline"
-                  className="flex-1 h-14 text-lg rounded-full"
-                  onClick={() => setShowDismissConfirm(true)}
-                  disabled={saving}
-                >
-                  Dismiss
-                </Button>
-              )}
-              <Button
-                className={cn(
-                  "h-14 text-lg rounded-full bg-primary text-primary-foreground hover:bg-primary/90",
-                  leftDuration > 0 || rightDuration > 0 ? "flex-1" : "w-full"
+            <>
+              {/* While timer running: show nothing here (per spec) */}
+              {!isTimerRunning &&
+                (leftDuration > 0 || rightDuration > 0) &&
+                !isManualMode && (
+                  <div className="flex gap-3">
+                    <Button
+                      variant="outline"
+                      className="flex-1 h-14 text-lg rounded-full"
+                      onClick={resetNursing}
+                      disabled={saving}
+                    >
+                      Reset
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="flex-1 h-14 text-lg rounded-full"
+                      onClick={enterManualModeFromTimers}
+                      disabled={saving}
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      className="flex-1 h-14 text-lg rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+                      onClick={handleSaveNursing}
+                      disabled={
+                        saving || (leftDuration === 0 && rightDuration === 0)
+                      }
+                    >
+                      {saving ? "Saving..." : "Save"}
+                    </Button>
+                  </div>
                 )}
-                onClick={handleSaveNursing}
-                disabled={
-                  saving || (leftDuration === 0 && rightDuration === 0)
-                }
-              >
-                {saving ? "Saving..." : "Save"}
-              </Button>
-            </div>
+            </>
           )}
 
           {/* Dismiss Confirmation Dialog */}
@@ -994,120 +1344,141 @@ export default function FeedingPage() {
         </TabsContent>
 
         {/* Bottle Tab */}
-        <TabsContent value="bottle" className="space-y-6">
-          <DateTimeRow
-            label="Start Time"
-            value={bottleStartTime}
-            onChange={setBottleStartTime}
-          />
+        {!(!isEditMode && !!nursingStartTime) &&
+          (!isEditMode || originalFeedingType === "bottle") && (
+            <TabsContent value="bottle" className="space-y-6">
+              <DateTimeRow
+                label="Start Time"
+                value={bottleStartTime}
+                onChange={setBottleStartTime}
+              />
 
-          {/* Content Type */}
-          <div className="flex items-center justify-between py-3 border-b border-border">
-            <span className="text-muted-foreground">Type:</span>
-            <div className="flex gap-2">
-              {(["breast_milk", "formula"] as const).map((type) => (
-                <Button
-                  key={type}
-                  variant={bottleContent === type ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setBottleContent(type)}
-                  className={cn(
-                    bottleContent === type && "bg-accent text-accent-foreground"
-                  )}
-                >
-                  {type === "breast_milk" ? "Breast milk" : "Formula"}
-                </Button>
-              ))}
-            </div>
-          </div>
+              {/* Content Type */}
+              <div className="flex items-center justify-between py-3 border-b border-border">
+                <span className="text-muted-foreground">Type:</span>
+                <div className="flex gap-2">
+                  {(["breast_milk", "formula"] as const).map((type) => (
+                    <Button
+                      key={type}
+                      variant={bottleContent === type ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setBottleContent(type)}
+                      className={cn(
+                        bottleContent === type &&
+                          "bg-accent text-accent-foreground"
+                      )}
+                    >
+                      {type === "breast_milk" ? "Breast milk" : "Formula"}
+                    </Button>
+                  ))}
+                </div>
+              </div>
 
-          {/* Unit Toggle */}
-          <div className="flex justify-center gap-2">
-            {(["oz", "ml"] as const).map((unit) => (
-              <Button
-                key={unit}
-                variant={amountUnit === unit ? "default" : "outline"}
-                size="sm"
-                onClick={() => setAmountUnit(unit)}
-                className={cn(
-                  amountUnit === unit && "bg-cyan text-cyan-foreground"
-                )}
-              >
-                {unit}
-              </Button>
-            ))}
-          </div>
+              {/* Unit Toggle */}
+              <div className="flex justify-center gap-2">
+                {(["oz", "ml"] as const).map((unit) => (
+                  <Button
+                    key={unit}
+                    variant={amountUnit === unit ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => {
+                      if (amountUnit === unit) return;
+                      const converted = convertVolume(amount, amountUnit, unit);
+                      const step = unit === "oz" ? 0.25 : 5;
+                      const rounded = roundToStep(converted, step);
+                      const clamped =
+                        unit === "oz"
+                          ? Math.min(12, Math.max(0, rounded))
+                          : Math.min(350, Math.max(0, rounded));
+                      setAmountUnit(unit);
+                      setAmount(
+                        unit === "oz"
+                          ? Number(clamped.toFixed(2))
+                          : Math.round(clamped)
+                      );
+                    }}
+                    className={cn(
+                      amountUnit === unit && "bg-cyan text-cyan-foreground"
+                    )}
+                  >
+                    {unit}
+                  </Button>
+                ))}
+              </div>
 
-          {/* Amount */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Amount (optional)</span>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  value={amount}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    if (!isNaN(val) && val >= 0) {
-                      const max = amountUnit === "oz" ? 12 : 350;
-                      setAmount(Math.min(val, max));
-                    }
-                  }}
+              {/* Amount */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">
+                    Amount (optional)
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      value={amount}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        if (!isNaN(val) && val >= 0) {
+                          const max = amountUnit === "oz" ? 12 : 350;
+                          setAmount(Math.min(val, max));
+                        }
+                      }}
+                      min={0}
+                      max={amountUnit === "oz" ? 12 : 350}
+                      step={amountUnit === "oz" ? 0.25 : 5}
+                      className="w-20 text-right bg-transparent border-border text-accent"
+                    />
+                    <span className="text-accent">{amountUnit}</span>
+                  </div>
+                </div>
+                <Slider
+                  value={[amount]}
+                  onValueChange={([v]) => setAmount(v)}
                   min={0}
                   max={amountUnit === "oz" ? 12 : 350}
                   step={amountUnit === "oz" ? 0.25 : 5}
-                  className="w-20 text-right bg-transparent border-border text-accent"
+                  className="w-full"
                 />
-                <span className="text-accent">{amountUnit}</span>
+                <div className="flex justify-between text-sm text-muted-foreground">
+                  <span>0</span>
+                  <span>{amountUnit === "oz" ? "12" : "350"}</span>
+                </div>
               </div>
-            </div>
-            <Slider
-              value={[amount]}
-              onValueChange={([v]) => setAmount(v)}
-              min={0}
-              max={amountUnit === "oz" ? 12 : 350}
-              step={amountUnit === "oz" ? 0.25 : 5}
-              className="w-full"
-            />
-            <div className="flex justify-between text-sm text-muted-foreground">
-              <span>0</span>
-              <span>{amountUnit === "oz" ? "12" : "350"}</span>
-            </div>
-          </div>
 
-          <NotesInput value={notes} onChange={setNotes} id="bottle-notes" />
+              <NotesInput value={notes} onChange={setNotes} id="bottle-notes" />
 
-          {/* Action Buttons */}
-          {isEditMode ? (
-            <div className="flex gap-3">
-              <Button
-                variant="outline"
-                className="flex-1 h-14 text-lg rounded-full"
-                onClick={handleCancel}
-                disabled={saving}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                className="flex-1 h-14 text-lg rounded-full"
-                onClick={handleDelete}
-                disabled={saving}
-              >
-                Delete
-              </Button>
-              <Button
-                className="flex-1 h-14 text-lg rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
-                onClick={handleSaveBottle}
-                disabled={saving}
-              >
-                {saving ? "Saving..." : "Save"}
-              </Button>
-            </div>
-          ) : (
-            <SaveButton onClick={handleSaveBottle} saving={saving} />
+              {/* Action Buttons */}
+              {isEditMode ? (
+                <div className="flex gap-3">
+                  <Button
+                    variant="outline"
+                    className="flex-1 h-14 text-lg rounded-full"
+                    onClick={handleCancel}
+                    disabled={saving}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    className="flex-1 h-14 text-lg rounded-full"
+                    onClick={handleDelete}
+                    disabled={saving}
+                  >
+                    Delete
+                  </Button>
+                  <Button
+                    className="flex-1 h-14 text-lg rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+                    onClick={handleSaveBottle}
+                    disabled={saving}
+                  >
+                    {saving ? "Saving..." : "Save"}
+                  </Button>
+                </div>
+              ) : (
+                <SaveButton onClick={handleSaveBottle} saving={saving} />
+              )}
+            </TabsContent>
           )}
-        </TabsContent>
       </Tabs>
 
       {/* Conflict Dialog */}
@@ -1119,7 +1490,8 @@ export default function FeedingPage() {
         onConfirm={handleConflictConfirm}
         onCancel={handleConflictCancel}
         onGoToActivity={(activityType) => {
-          if (activityType === "sleep") router.push(`/baby/${babyId}/sleep/new`);
+          if (activityType === "sleep")
+            router.push(`/baby/${babyId}/sleep/new`);
           if (activityType === "pumping")
             router.push(`/baby/${babyId}/pumping/new`);
           // For feeding conflicts, stay on current page

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { format, isToday, isYesterday, differenceInHours, differenceInMinutes } from "date-fns";
+import { format, isToday, isYesterday, differenceInMinutes } from "date-fns";
 import {
   Milk,
   Moon,
@@ -36,7 +36,8 @@ import {
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { getTimelineEntries, TimeframeOption } from "@/lib/actions/tracking";
 import { getBaby } from "@/lib/actions/babies";
-import { cn } from "@/lib/utils";
+import { getCurrentUser } from "@/lib/actions/users";
+import { cn, formatVolumeForUnitSystem } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { DateRange } from "react-day-picker";
@@ -106,6 +107,10 @@ export default function HistoryPage() {
   const params = useParams();
   const babyId = params.babyId as string;
 
+  const [unitSystem, setUnitSystem] = useState<"imperial" | "metric">(
+    "imperial"
+  );
+
   const [timeframe, setTimeframe] = useState<TimeframeOption>("7d");
   const [isCustomMode, setIsCustomMode] = useState(false);
   const [customDateRange, setCustomDateRange] = useState<
@@ -117,6 +122,18 @@ export default function HistoryPage() {
   const [babyName, setBabyName] = useState<string>("");
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set());
   const [showMoreFilters, setShowMoreFilters] = useState(false);
+
+  useEffect(() => {
+    async function loadSettings() {
+      try {
+        const user = await getCurrentUser();
+        if (user?.unitSystem) setUnitSystem(user.unitSystem);
+      } catch {
+        // ignore
+      }
+    }
+    loadSettings();
+  }, []);
 
   useEffect(() => {
     async function fetchBaby() {
@@ -170,26 +187,30 @@ export default function HistoryPage() {
   const formatTime = (d: Date) => {
     const date = new Date(d);
     const timeStr = format(date, "h:mm a");
-    
+
     // Check if event happened in the past 10 hours
     const now = new Date();
     const totalMinutes = differenceInMinutes(now, date);
     const hoursDiff = Math.floor(totalMinutes / 60);
     const minutesDiff = totalMinutes % 60;
-    
+
     if (totalMinutes >= 0 && hoursDiff < 10) {
       let relativeTime = "";
       if (hoursDiff > 0) {
         relativeTime = `${hoursDiff} ${hoursDiff === 1 ? "hour" : "hours"}`;
         if (minutesDiff > 0) {
-          relativeTime += ` ${minutesDiff} ${minutesDiff === 1 ? "minute" : "minutes"}`;
+          relativeTime += ` ${minutesDiff} ${
+            minutesDiff === 1 ? "minute" : "minutes"
+          }`;
         }
       } else {
-        relativeTime = `${minutesDiff} ${minutesDiff === 1 ? "minute" : "minutes"}`;
+        relativeTime = `${minutesDiff} ${
+          minutesDiff === 1 ? "minute" : "minutes"
+        }`;
       }
       return `${timeStr} (${relativeTime} ago)`;
     }
-    
+
     return timeStr;
   };
 
@@ -248,7 +269,12 @@ export default function HistoryPage() {
           const content = entry.bottleContent;
           const milkType =
             content === "breast_milk" ? "breast milk" : "formula";
-          return `${name} drank ${amount || 0}${unit} of ${milkType}`;
+
+          const formatted = formatVolumeForUnitSystem(amount, unit, unitSystem);
+          const amountText = formatted
+            ? `${formatted.amount}${formatted.unit}`
+            : `${amount || 0}${unit}`;
+          return `${name} drank ${amountText} of ${milkType}`;
         }
       }
       case "sleep": {
@@ -291,12 +317,34 @@ export default function HistoryPage() {
         const right = entry.rightAmount;
         const unit = entry.amountUnit || "oz";
 
+        const formattedTotal = formatVolumeForUnitSystem(
+          total,
+          unit,
+          unitSystem
+        );
+        const formattedLeft = formatVolumeForUnitSystem(left, unit, unitSystem);
+        const formattedRight = formatVolumeForUnitSystem(
+          right,
+          unit,
+          unitSystem
+        );
+
         if (left && right) {
-          return `Pumped ${
-            total || left + right
-          }${unit} (L: ${left}${unit}, R: ${right}${unit})`;
+          const totalAmountText = formattedTotal
+            ? `${formattedTotal.amount}${formattedTotal.unit}`
+            : `${total || left + right}${unit}`;
+          const leftText = formattedLeft
+            ? `${formattedLeft.amount}${formattedLeft.unit}`
+            : `${left}${unit}`;
+          const rightText = formattedRight
+            ? `${formattedRight.amount}${formattedRight.unit}`
+            : `${right}${unit}`;
+          return `Pumped ${totalAmountText} (L: ${leftText}, R: ${rightText})`;
         } else if (total) {
-          return `Pumped ${total}${unit} total`;
+          const totalText = formattedTotal
+            ? `${formattedTotal.amount}${formattedTotal.unit}`
+            : `${total}${unit}`;
+          return `Pumped ${totalText} total`;
         }
         return "Pumping session completed";
       }
